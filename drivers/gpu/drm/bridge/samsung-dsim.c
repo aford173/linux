@@ -1588,6 +1588,10 @@ static ssize_t samsung_dsim_host_transfer(struct mipi_dsi_host *host,
 	return (ret < 0) ? ret : xfer.rx_done;
 }
 
+static const struct drm_bridge_timings samsung_dsim_timings = {
+	.input_bus_flags = DRM_BUS_FLAG_DE_LOW,
+};
+
 static const struct mipi_dsi_host_ops samsung_dsim_ops = {
 	.attach = samsung_dsim_host_attach,
 	.detach = samsung_dsim_host_detach,
@@ -1723,6 +1727,7 @@ static int samsung_dsim_probe(struct platform_device *pdev)
 	dsi->bridge.of_node = dev->of_node;
 	dsi->bridge.timings = &samsung_dsim_bridge_timings;
 	dsi->bridge.type = DRM_MODE_CONNECTOR_DSI;
+	dsi->bridge.timings = &samsung_dsim_timings;
 
 	if (dsi->driver_data->quirks & DSIM_QUIRK_PLAT_DATA)
 		ret = samsung_dsim_plat_probe(dsi);
