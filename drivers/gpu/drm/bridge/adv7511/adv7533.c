@@ -83,6 +83,8 @@ void adv7533_dsi_power_on(struct adv7511 *adv)
 		regmap_write(adv->regmap_cec, 0x27, 0x0b);
 	}
 
+	regmap_write(adv->regmap, 0x49, 0x00);
+
 	/* enable hdmi */
 	regmap_write(adv->regmap_cec, 0x03, 0x89);
 	/* disable test mode */
