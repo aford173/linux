@@ -23,6 +23,7 @@ properties:
       - enum:
           - fsl,imx8mm-dispmix-blk-ctl
           - fsl,imx8mm-vpumix-blk-ctl
+          - fsl,imx8mn-dispmix-blk-ctl
       - const: syscon
 
   reg:
