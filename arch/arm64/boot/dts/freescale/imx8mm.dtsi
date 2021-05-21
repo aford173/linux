@@ -656,6 +656,33 @@
 						power-domains = <&pgc_gpumix>;
 					};
 
+					pgc_vpumix: power-domain@6 {
+						#power-domain-cells = <0>;
+						reg = <IMX8MM_POWER_DOMAIN_VPUMIX>;
+						clocks = <&clk IMX8MM_CLK_VPU_DEC_ROOT>;
+					};
+
+					pgc_vpug1: power-domain@7 {
+						#power-domain-cells = <0>;
+						reg = <IMX8MM_POWER_DOMAIN_VPUG1>;
+						power-domains = <&pgc_vpumix>;
+						clocks = <&clk IMX8MM_CLK_VPU_G1_ROOT>;
+					};
+
+					pgc_vpug2: power-domain@8 {
+						#power-domain-cells = <0>;
+						reg = <IMX8MM_POWER_DOMAIN_VPUG2>;
+						power-domains = <&pgc_vpumix>;
+						clocks = <&clk IMX8MM_CLK_VPU_G2_ROOT>;
+					};
+
+					pgc_vpuh1: power-domain@9 {
+						#power-domain-cells = <0>;
+						reg = <IMX8MM_POWER_DOMAIN_VPUH1>;
+						power-domains = <&pgc_vpumix>;
+						clocks = <&clk IMX8MM_CLK_VPU_H1_ROOT>;
+					};
+
 					pgc_dispmix: power-domain@10 {
 						#power-domain-cells = <0>;
 						reg = <IMX8MM_POWER_DOMAIN_DISPMIX>;
@@ -1134,6 +1161,18 @@
 			assigned-clock-rates = <0>, <0>,<400000000>,<1000000000>;
 			power-domains = <&pgc_gpu>;
 		};
+
+		vpumix_blk_ctl: blk-ctl@38330000 {
+				compatible = "fsl,imx8mm-vpumix-blk-ctl", "syscon";
+				reg = <0x38330000 0x100>;
+				#power-domain-cells = <1>;
+				power-domains = <&pgc_vpumix>, <&pgc_vpug1>,<&pgc_vpug2>, <&pgc_vpuh1>;
+				power-domain-names = "vpumix", "g1", "g2", "h1";
+				clocks = <&clk IMX8MM_CLK_VPU_DEC_ROOT>,
+					 <&clk IMX8MM_CLK_VPU_G1_ROOT>,
+					 <&clk IMX8MM_CLK_VPU_G2_ROOT>,
+					 <&clk IMX8MM_CLK_VPU_H1_ROOT>;
+			};
 
 		gic: interrupt-controller@38800000 {
 			compatible = "arm,gic-v3";
