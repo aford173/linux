@@ -33,6 +33,10 @@ struct samsung_dsim_transfer {
 	u16 rx_done;
 };
 
+enum samsung_dsim_quirks {
+	DSIM_QUIRK_PLAT_DATA		= BIT(0),
+};
+
 struct samsung_dsim_driver_data {
 	const unsigned int *reg_ofs;
 	unsigned int plltmr_reg;
@@ -43,6 +47,7 @@ struct samsung_dsim_driver_data {
 	unsigned int wait_for_reset;
 	unsigned int num_bits_resol;
 	const unsigned int *reg_values;
+	enum samsung_dsim_quirks quirks;
 };
 
 struct samsung_dsim_host_ops {

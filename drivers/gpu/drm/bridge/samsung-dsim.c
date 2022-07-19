@@ -369,6 +369,7 @@ static const struct samsung_dsim_driver_data exynos3_dsi_driver_data = {
 	.wait_for_reset = 1,
 	.num_bits_resol = 11,
 	.reg_values = reg_values,
+	.quirks = DSIM_QUIRK_PLAT_DATA,
 };
 
 static const struct samsung_dsim_driver_data exynos4_dsi_driver_data = {
@@ -381,6 +382,7 @@ static const struct samsung_dsim_driver_data exynos4_dsi_driver_data = {
 	.wait_for_reset = 1,
 	.num_bits_resol = 11,
 	.reg_values = reg_values,
+	.quirks = DSIM_QUIRK_PLAT_DATA,
 };
 
 static const struct samsung_dsim_driver_data exynos5_dsi_driver_data = {
@@ -391,6 +393,7 @@ static const struct samsung_dsim_driver_data exynos5_dsi_driver_data = {
 	.wait_for_reset = 1,
 	.num_bits_resol = 11,
 	.reg_values = reg_values,
+	.quirks = DSIM_QUIRK_PLAT_DATA,
 };
 
 static const struct samsung_dsim_driver_data exynos5433_dsi_driver_data = {
@@ -402,6 +405,7 @@ static const struct samsung_dsim_driver_data exynos5433_dsi_driver_data = {
 	.wait_for_reset = 0,
 	.num_bits_resol = 12,
 	.reg_values = exynos5433_reg_values,
+	.quirks = DSIM_QUIRK_PLAT_DATA,
 };
 
 static const struct samsung_dsim_driver_data exynos5422_dsi_driver_data = {
@@ -413,6 +417,7 @@ static const struct samsung_dsim_driver_data exynos5422_dsi_driver_data = {
 	.wait_for_reset = 1,
 	.num_bits_resol = 12,
 	.reg_values = exynos5422_reg_values,
+	.quirks = DSIM_QUIRK_PLAT_DATA,
 };
 
 static const struct of_device_id samsung_dsim_of_match[] = {
@@ -1609,7 +1614,11 @@ static int samsung_dsim_probe(struct platform_device *pdev)
 	dsi->bridge.of_node = dev->of_node;
 	dsi->bridge.type = DRM_MODE_CONNECTOR_DSI;
 
-	ret = samsung_dsim_plat_probe(dsi);
+	if (dsi->driver_data->quirks & DSIM_QUIRK_PLAT_DATA)
+		ret = samsung_dsim_plat_probe(dsi);
+	else
+		ret = mipi_dsi_host_register(&dsi->dsi_host);
+
 	if (ret)
 		goto err_disable_runtime;
 
@@ -1627,7 +1636,10 @@ static int samsung_dsim_remove(struct platform_device *pdev)
 
 	pm_runtime_disable(&pdev->dev);
 
-	samsung_dsim_plat_remove(dsi);
+	if (dsi->driver_data->quirks & DSIM_QUIRK_PLAT_DATA)
+		samsung_dsim_plat_remove(dsi);
+	else
+		mipi_dsi_host_unregister(&dsi->dsi_host);
 
 	return 0;
 }
