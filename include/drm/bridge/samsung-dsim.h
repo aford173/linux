@@ -35,6 +35,7 @@ struct samsung_dsim_transfer {
 
 enum samsung_dsim_quirks {
 	DSIM_QUIRK_PLAT_DATA		= BIT(0),
+	DSIM_QUIRK_FIXUP_SYNC_POL	= BIT(1),
 };
 
 struct samsung_dsim_driver_data {
