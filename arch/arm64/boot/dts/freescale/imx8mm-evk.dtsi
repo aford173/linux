@@ -402,7 +402,6 @@
 	fsl,tx-deemph-gen1 = <0x2d>;
 	fsl,tx-deemph-gen2 = <0xf>;
 	clocks = <&pcie0_refclk>;
-	status = "okay";
 };
 
 &pcie0 {
@@ -418,7 +417,6 @@
 	assigned-clock-parents = <&clk IMX8MM_SYS_PLL2_50M>,
 				 <&clk IMX8MM_SYS_PLL2_250M>;
 	vpcie-supply = <&reg_pcie0>;
-	status = "okay";
 };
 
 &sai3 {
