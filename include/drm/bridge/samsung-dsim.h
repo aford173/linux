@@ -83,7 +83,6 @@ struct samsung_dsim {
 	int irq;
 
 	u32 pll_clk_rate;
-	u32 burst_clk_rate;
 	u32 esc_clk_rate;
 	u32 lanes;
 	u32 mode_flags;
