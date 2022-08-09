@@ -53,6 +53,7 @@ struct samsung_dsim_driver_data {
 	u16 m_min;
 	u16 m_max;
 	u64 fco_min;
+	bool dynamic_dphy;
 };
 
 struct samsung_dsim_host_ops {

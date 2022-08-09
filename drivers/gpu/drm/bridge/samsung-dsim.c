@@ -18,12 +18,13 @@
 #include <linux/media-bus-format.h>
 #include <linux/of_device.h>
 #include <linux/phy/phy.h>
-
+#include <linux/bsearch.h>
 #include <video/mipi_display.h>
-
 #include <drm/bridge/samsung-dsim.h>
 #include <drm/drm_panel.h>
 #include <drm/drm_print.h>
+
+#include "samsung-dsim.h"
 
 /* returns true iff both arguments logically differs */
 #define NEQV(a, b) (!(a) ^ !(b))
@@ -495,6 +496,7 @@ static const struct samsung_dsim_driver_data imx8mm_dsi_driver_data = {
 	.m_min = 41,
 	.m_max = 1023,
 	.fco_min = 1050,
+	.dynamic_dphy = 1,
 };
 
 static const struct of_device_id samsung_dsim_of_match[] = {
@@ -724,18 +726,50 @@ static int samsung_dsim_enable_clock(struct samsung_dsim *dsi)
 	return 0;
 }
 
+static inline int dphy_timing_default_cmp(const void *key, const void *elt)
+{
+        const struct sec_mipi_dsim_dphy_timing *_key = key;
+        const struct sec_mipi_dsim_dphy_timing *_elt = elt;
+
+        /* find an element whose 'bit_clk' is equal to the
+         * the key's 'bit_clk' value or, the difference
+         * between them is less than 5.
+         */
+
+        if (abs((int)(_elt->bit_clk - _key->bit_clk)) <= 5)
+                return 0;
+
+        if (_key->bit_clk < _elt->bit_clk)
+                /* search bottom half */
+                return 1;
+        else
+                /* search top half */
+                return -1;
+}
+
 static void samsung_dsim_set_phy_ctrl(struct samsung_dsim *dsi)
 {
 	const struct samsung_dsim_driver_data *driver_data = dsi->driver_data;
 	const unsigned int *reg_values = driver_data->reg_values;
-	u32 reg;
+	u32 reg = 0;
+	struct drm_display_mode *m = &dsi->mode;
+	struct sec_mipi_dsim_dphy_timing key = { 0 };
+	const struct sec_mipi_dsim_dphy_timing *match = NULL;
+	int bpp = mipi_dsi_pixel_format_to_bpp(dsi->format);
 
-	if (driver_data->has_freqband)
-		return;
+	/* Only dynamic dphy uses the lookup table to determine rates based on clock */
+	if (driver_data->dynamic_dphy) {
+		key.bit_clk = DIV_ROUND_UP(m->clock * bpp, dsi->lanes * 1000);
+
+		match = bsearch(&key, dphy_timing_ln14lpp_v1p2, ARRAY_SIZE(dphy_timing_ln14lpp_v1p2),
+				sizeof(struct sec_mipi_dsim_dphy_timing),
+				dphy_timing_default_cmp);
+	}
 
 	/* B D-PHY: D-PHY Master & Slave Analog Block control */
 	reg = reg_values[PHYCTRL_ULPS_EXIT] | reg_values[PHYCTRL_VREG_LP] |
 		reg_values[PHYCTRL_SLEW_UP];
+
 	samsung_dsim_write(dsi, DSIM_PHYCTRL_REG, reg);
 
 	/*
@@ -743,7 +777,12 @@ static void samsung_dsim_set_phy_ctrl(struct samsung_dsim *dsi)
 	 * T HS-EXIT: Time that the transmitter drives LP-11 following a HS
 	 *	burst
 	 */
-	reg = reg_values[PHYTIMING_LPX] | reg_values[PHYTIMING_HS_EXIT];
+	if (driver_data->dynamic_dphy) {
+		reg  = DSIM_PHYTIMING_LPX(match->lpx) | DSIM_PHYTIMING_HS_EXIT(match->hs_exit);
+	}
+	else
+		reg = reg_values[PHYTIMING_LPX] | reg_values[PHYTIMING_HS_EXIT];
+
 	samsung_dsim_write(dsi, DSIM_PHYTIMING_REG, reg);
 
 	/*
@@ -759,10 +798,18 @@ static void samsung_dsim_set_phy_ctrl(struct samsung_dsim *dsi)
 	 * T CLK-TRAIL: Time that the transmitter drives the HS-0 state after
 	 *	the last payload clock bit of a HS transmission burst
 	 */
-	reg = reg_values[PHYTIMING_CLK_PREPARE] |
-		reg_values[PHYTIMING_CLK_ZERO] |
-		reg_values[PHYTIMING_CLK_POST] |
-		reg_values[PHYTIMING_CLK_TRAIL];
+	if (driver_data->dynamic_dphy) {
+		reg = DSIM_PHYTIMING1_CLK_PREPARE(match->clk_prepare)	|
+		      DSIM_PHYTIMING1_CLK_ZERO(match->clk_zero)	|
+		      DSIM_PHYTIMING1_CLK_POST(match->clk_post)	|
+		      DSIM_PHYTIMING1_CLK_TRAIL(match->clk_trail);
+	}
+	else {
+		reg = reg_values[PHYTIMING_CLK_PREPARE] |
+		      reg_values[PHYTIMING_CLK_ZERO] |
+		      reg_values[PHYTIMING_CLK_POST] |
+		      reg_values[PHYTIMING_CLK_TRAIL];
+	}
 
 	samsung_dsim_write(dsi, DSIM_PHYTIMING1_REG, reg);
 
@@ -775,13 +822,18 @@ static void samsung_dsim_set_phy_ctrl(struct samsung_dsim *dsi)
 	 * T HS-TRAIL: Time that the transmitter drives the flipped differential
 	 *	state after last payload data bit of a HS transmission burst
 	 */
+	if (driver_data->dynamic_dphy) {
+		reg = DSIM_PHYTIMING2_HS_PREPARE(match->hs_prepare) |
+		      DSIM_PHYTIMING2_HS_ZERO(match->hs_zero) |
+		      DSIM_PHYTIMING2_HS_TRAIL(match->hs_trail);
+	}
+	else {
+		reg = reg_values[PHYTIMING_HS_PREPARE] |
+		      reg_values[PHYTIMING_HS_ZERO] |
+		      reg_values[PHYTIMING_HS_TRAIL];
+	}
 
-	reg = reg_values[PHYTIMING_HS_PREPARE] | reg_values[PHYTIMING_HS_ZERO] |
-		reg_values[PHYTIMING_HS_TRAIL];
-		
 	samsung_dsim_write(dsi, DSIM_PHYTIMING2_REG, reg);
-
-
 }
 
 static void samsung_dsim_disable_clock(struct samsung_dsim *dsi)
@@ -1373,7 +1425,8 @@ static int samsung_dsim_init(struct samsung_dsim *dsi)
 	samsung_dsim_enable_clock(dsi);
 	if (driver_data->wait_for_reset)
 		samsung_dsim_wait_for_reset(dsi);
-	samsung_dsim_set_phy_ctrl(dsi);
+	if (!driver_data->has_freqband)
+		samsung_dsim_set_phy_ctrl(dsi);
 	samsung_dsim_init_link(dsi);
 
 	dsi->state |= DSIM_STATE_INITIALIZED;
