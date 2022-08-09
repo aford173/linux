@@ -50,6 +50,9 @@ struct samsung_dsim_driver_data {
 	unsigned int pll_p_offset;
 	const unsigned int *reg_values;
 	enum samsung_dsim_quirks quirks;
+	u16 m_min;
+	u16 m_max;
+	u64 fco_min;
 };
 
 struct samsung_dsim_host_ops {

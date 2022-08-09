@@ -415,6 +415,9 @@ static const struct samsung_dsim_driver_data exynos3_dsi_driver_data = {
 	.pll_p_offset = 13,
 	.reg_values = reg_values,
 	.quirks = DSIM_QUIRK_PLAT_DATA,
+	.m_min = 41,
+	.m_max = 125,
+	.fco_min = 500,
 };
 
 static const struct samsung_dsim_driver_data exynos4_dsi_driver_data = {
@@ -441,6 +444,9 @@ static const struct samsung_dsim_driver_data exynos5_dsi_driver_data = {
 	.pll_p_offset = 13,
 	.reg_values = reg_values,
 	.quirks = DSIM_QUIRK_PLAT_DATA,
+	.m_min = 41,
+	.m_max = 125,
+	.fco_min = 500,
 };
 
 static const struct samsung_dsim_driver_data exynos5433_dsi_driver_data = {
@@ -454,6 +460,9 @@ static const struct samsung_dsim_driver_data exynos5433_dsi_driver_data = {
 	.pll_p_offset = 13,
 	.reg_values = exynos5433_reg_values,
 	.quirks = DSIM_QUIRK_PLAT_DATA,
+	.m_min = 41,
+	.m_max = 125,
+	.fco_min = 500,
 };
 
 static const struct samsung_dsim_driver_data exynos5422_dsi_driver_data = {
@@ -467,6 +476,9 @@ static const struct samsung_dsim_driver_data exynos5422_dsi_driver_data = {
 	.pll_p_offset = 13,
 	.reg_values = exynos5422_reg_values,
 	.quirks = DSIM_QUIRK_PLAT_DATA,
+	.m_min = 41,
+	.m_max = 125,
+	.fco_min = 500,
 };
 
 static const struct samsung_dsim_driver_data imx8mm_dsi_driver_data = {
@@ -480,6 +492,9 @@ static const struct samsung_dsim_driver_data imx8mm_dsi_driver_data = {
 	.pll_p_offset = 14,
 	.reg_values = imx8mm_dsim_reg_values,
 	.quirks = DSIM_QUIRK_FIXUP_SYNC_POL,
+	.m_min = 41,
+	.m_max = 1023,
+	.fco_min = 1050,
 };
 
 static const struct of_device_id samsung_dsim_of_match[] = {
@@ -578,12 +593,12 @@ printk(KERN_ERR "desired freq %lu\n", fout);
 			tmp = (u64)fout * (_p << _s);
 			do_div(tmp, fin);
 			_m = tmp;
-			if (_m < 41 || _m > 125)
+			if (_m < driver_data->m_min || _m > driver_data->m_max)
 				continue;
 
 			tmp = (u64)_m * fin;
 			do_div(tmp, _p);
-			if (tmp < 500 * MHZ ||
+			if (tmp < driver_data->fco_min * MHZ ||
 					tmp > driver_data->max_freq * MHZ)
 				continue;
 
