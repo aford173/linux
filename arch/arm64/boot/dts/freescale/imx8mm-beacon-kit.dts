@@ -61,6 +61,7 @@
 		reg = <0x3d>, <0x3b>;
 		reg-names = "main", "cec";
 		adi,dsi-lanes = <4>;
+		adi,fixed-lanes;
 		dvdd-supply = <&reg_hdmi_dvdd>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_adv_bridge>;
