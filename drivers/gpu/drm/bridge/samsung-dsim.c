@@ -80,6 +80,7 @@
 #define DSIM_MFLUSH_VS			(1 << 29)
 /* This flag is valid only for exynos3250/3472/5260/5430 */
 #define DSIM_CLKLANE_STOP		(1 << 30)
+#define DSIM_NON_CONT_CLOCK_LANE	(1 << 31)
 
 /* DSIM_ESCMODE */
 #define DSIM_TX_TRIGGER_RST		(1 << 4)
@@ -939,9 +940,11 @@ static int samsung_dsim_init_link(struct samsung_dsim *dsi)
 	 * the HS clock between high-speed transmissions to reduce
 	 * power consumption.
 	 */
-	if (driver_data->has_clklane_stop &&
-			dsi->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS) {
-		reg |= DSIM_CLKLANE_STOP;
+
+	if (dsi->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS) {
+		reg |= DSIM_NON_CONT_CLOCK_LANE;
+		if (driver_data->has_clklane_stop)
+			reg |= DSIM_CLKLANE_STOP;
 	}
 	samsung_dsim_write(dsi, DSIM_CONFIG_REG, reg);
 
