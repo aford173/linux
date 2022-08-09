@@ -538,7 +538,7 @@ static inline struct samsung_dsim *bridge_to_dsi(struct drm_bridge *b)
 static inline void samsung_dsim_write(struct samsung_dsim *dsi,
 				      enum reg_idx idx, u32 val)
 {
-	printk(KERN_ERR "dsim_write: %s = %x\n", reg_idx_string[idx], val);
+	dev_dbg(dsi->dev, "dsim_write: %s = %x\n", reg_idx_string[idx], val);
 	writel(val, dsi->reg_base + dsi->driver_data->reg_ofs[idx]);
 }
 
@@ -579,8 +579,6 @@ static unsigned long samsung_dsim_pll_find_pms(struct samsung_dsim *dsi,
 	u8 _p, best_p;
 	u16 _m, best_m;
 	u8 _s, best_s;
-
-printk(KERN_ERR "desired freq %lu\n", fout);
 
 	p_min = DIV_ROUND_UP(fin, (12 * MHZ));
 	p_max = fin / (6 * MHZ);
@@ -635,8 +633,6 @@ static unsigned long samsung_dsim_set_pll(struct samsung_dsim *dsi,
 	u16 m;
 	u32 reg;
 
-printk(KERN_ERR "samsung_dsim_set_pll\n");
-
 	fin = dsi->pll_clk_rate;
 	fout = samsung_dsim_pll_find_pms(dsi, fin, freq, &p, &m, &s);
 	if (!fout) {
@@ -644,7 +640,7 @@ printk(KERN_ERR "samsung_dsim_set_pll\n");
 			"failed to find PLL PMS for requested frequency\n");
 		return 0;
 	}
-	printk(KERN_ERR "PLL freq %lu, (p %d, m %d, s %d)\n", fout, p, m, s);
+	dev_dbg(dsi->dev, "PLL freq %lu, (p %d, m %d, s %d)\n", fout, p, m, s);
 
 	writel(driver_data->reg_values[PLL_TIMER],
 			dsi->reg_base + driver_data->plltmr_reg);
@@ -665,7 +661,7 @@ printk(KERN_ERR "samsung_dsim_set_pll\n");
 			if (fout < freq_bands[band])
 				break;
 
-		printk(KERN_ERR "band %d\n", band);
+		dev_dbg(dsi->dev, "band %d\n", band);
 
 		reg |= DSIM_FREQ_BAND(band);
 	}
@@ -710,7 +706,7 @@ static int samsung_dsim_enable_clock(struct samsung_dsim *dsi)
 		esc_clk = byte_clk / esc_div;
 	}
 
-	printk(KERN_ERR "hs_clk = %lu, byte_clk = %lu, esc_clk = %lu\n",
+	dev_dbg(dsi->dev, "hs_clk = %lu, byte_clk = %lu, esc_clk = %lu\n",
 		hs_clk, byte_clk, esc_clk);
 
 	reg = samsung_dsim_read(dsi, DSIM_CLKCTRL_REG);
@@ -792,8 +788,6 @@ static void samsung_dsim_disable_clock(struct samsung_dsim *dsi)
 {
 	u32 reg;
 
-printk(KERN_ERR "samsung_dsim_disable_clock\n");
-
 	reg = samsung_dsim_read(dsi, DSIM_CLKCTRL_REG);
 	reg &= ~(DSIM_LANE_ESC_CLK_EN_CLK | DSIM_LANE_ESC_CLK_EN_DATA_MASK
 			| DSIM_ESC_CLKEN | DSIM_BYTE_CLKEN);
@@ -808,8 +802,6 @@ static void samsung_dsim_enable_lane(struct samsung_dsim *dsi, u32 lane)
 {
 	u32 reg = samsung_dsim_read(dsi, DSIM_CONFIG_REG);
 
-printk(KERN_ERR "samsung_dsim_enable_lane\n");
-
 	reg |= (DSIM_NUM_OF_DATA_LANE(dsi->lanes - 1) | DSIM_LANE_EN_CLK |
 			DSIM_LANE_EN(lane));
 	samsung_dsim_write(dsi, DSIM_CONFIG_REG, reg);
@@ -821,8 +813,6 @@ static int samsung_dsim_init_link(struct samsung_dsim *dsi)
 	int timeout;
 	u32 reg;
 	u32 lanes_mask;
-
-printk(KERN_ERR "samsung_dsim_init_link\n");
 
 	/* Initialize FIFO pointers */
 	reg = samsung_dsim_read(dsi, DSIM_FIFOCTRL_REG);
@@ -938,8 +928,6 @@ static void samsung_dsim_set_display_mode(struct samsung_dsim *dsi)
 	int bpp;
 	u32 reg, hfp, hbp, hsa;
 
-printk(KERN_ERR "samsung_dsim_set_display_mode\n");
-
 	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO) {
 		bpp = mipi_dsi_pixel_format_to_bpp(dsi->format) / 8;
 
@@ -950,7 +938,7 @@ printk(KERN_ERR "samsung_dsim_set_display_mode\n");
 
 		hfp = DIV_ROUND_UP((m->hsync_start - m->hdisplay) * bpp, dsi->lanes);
 		hfp -= (hfp > DSI_HSYNC_PKT_OVERHEAD) ? DSI_HSYNC_PKT_OVERHEAD : 0;
-
+				
 		hbp = DIV_ROUND_UP((m->htotal - m->hsync_end) * bpp, dsi->lanes);
 		hbp -= (hbp > DSI_HSYNC_PKT_OVERHEAD) ? DSI_HSYNC_PKT_OVERHEAD : 0;
 
@@ -969,7 +957,7 @@ printk(KERN_ERR "samsung_dsim_set_display_mode\n");
 
 	samsung_dsim_write(dsi, DSIM_MDRESOL_REG, reg);
 
-	printk(KERN_ERR "LCD size = %dx%d\n", m->hdisplay, m->vdisplay);
+	dev_dbg(dsi->dev, "LCD size = %dx%d\n", m->hdisplay, m->vdisplay);
 }
 
 static void samsung_dsim_set_display_enable(struct samsung_dsim *dsi, bool enable)
@@ -1031,7 +1019,7 @@ static void samsung_dsim_send_to_fifo(struct samsung_dsim *dsi,
 	bool first = !xfer->tx_done;
 	u32 reg;
 
-	printk(KERN_ERR "< xfer %pK: tx len %u, done %u, rx len %u, done %u\n",
+	dev_dbg(dsi->dev, "< xfer %pK: tx len %u, done %u, rx len %u, done %u\n",
 		xfer, length, xfer->tx_done, xfer->rx_len, xfer->rx_done);
 
 	if (length > DSI_TX_FIFO_SIZE)
@@ -1227,7 +1215,7 @@ static bool samsung_dsim_transfer_finish(struct samsung_dsim *dsi)
 
 	spin_unlock_irqrestore(&dsi->transfer_lock, flags);
 
-	printk(KERN_ERR
+	dev_dbg(dsi->dev,
 		"> xfer %pK, tx_len %zu, tx_done %u, rx_len %u, rx_done %u\n",
 		xfer, xfer->packet.payload_length, xfer->tx_done, xfer->rx_len,
 		xfer->rx_done);
