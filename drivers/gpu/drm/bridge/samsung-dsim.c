@@ -703,7 +703,7 @@ static int samsung_dsim_enable_clock(struct samsung_dsim *dsi)
 	esc_div = DIV_ROUND_UP(byte_clk, dsi->esc_clk_rate);
 	esc_clk = byte_clk / esc_div;
 
-	if (esc_clk > 20 * MHZ) {
+	while (esc_clk > 20 * MHZ) {
 		++esc_div;
 		esc_clk = byte_clk / esc_div;
 	}
