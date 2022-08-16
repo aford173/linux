@@ -134,6 +134,14 @@ static irqreturn_t stm32mp25_venc_irq(int irq, void *dev_id)
 
 static void stm32mp25_venc_reset(struct hantro_ctx *ctx)
 {
+	u32 *rcc_venc = (u32 *)ioremap(0x44200868, 32);
+	u32 data;
+
+	data = readl(rcc_venc);
+	writel(data | 1, rcc_venc);
+	usleep_range(10, 20);
+	writel(data & ~1, rcc_venc);
+	usleep_range(10, 20);
 }
 
 /*
