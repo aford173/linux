@@ -1442,6 +1442,14 @@
 			power-domains = <&vpu_blk_ctrl IMX8MM_VPUBLK_PD_G2>;
 		};
 
+		vpu_h1: video-codec@38320000 {
+			compatible = "nxp,imx8mm-vpu-h1";
+			reg = <0x38320000 0x10000>;
+			interrupts = <GIC_SPI 30 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk IMX8MM_CLK_VPU_H1_ROOT>;
+			power-domains = <&vpu_blk_ctrl IMX8MM_VPUBLK_PD_H1>;
+		};
+
 		vpu_blk_ctrl: blk-ctrl@38330000 {
 			compatible = "fsl,imx8mm-vpu-blk-ctrl", "syscon";
 			reg = <0x38330000 0x100>;
@@ -1453,10 +1461,13 @@
 				 <&clk IMX8MM_CLK_VPU_H1_ROOT>;
 			clock-names = "g1", "g2", "h1";
 			assigned-clocks = <&clk IMX8MM_CLK_VPU_G1>,
-					  <&clk IMX8MM_CLK_VPU_G2>;
+					  <&clk IMX8MM_CLK_VPU_G2>,
+					  <&clk IMX8MM_CLK_VPU_H1>;
 			assigned-clock-parents = <&clk IMX8MM_VPU_PLL_OUT>,
+						 <&clk IMX8MM_VPU_PLL_OUT>,
 						 <&clk IMX8MM_VPU_PLL_OUT>;
 			assigned-clock-rates = <600000000>,
+					       <600000000>,
 					       <600000000>;
 			#power-domain-cells = <1>;
 		};
