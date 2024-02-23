@@ -14,6 +14,11 @@ properties:
   compatible:
     items:
       - enum:
+          - renesas,r8a774a1-gpu
+          - renesas,r8a774e1-gpu
+          - renesas,r8a77951-gpu
+          - renesas,r8a77960-gpu
+          - renesas,r8a77961-gpu
           - ti,am62-gpu
       - const: img,img-axe # IMG AXE GPU model/revision is fully discoverable
 
@@ -51,7 +56,13 @@ allOf:
       properties:
         compatible:
           contains:
-            const: ti,am62-gpu
+            enum:
+              - ti,am62-gpu
+              - renesas,r8a774a1-gpu
+              - renesas,r8a774e1-gpu
+              - renesas,r8a77951-gpu
+              - renesas,r8a77960-gpu
+              - renesas,r8a77961-gpu
     then:
       properties:
         clocks:
