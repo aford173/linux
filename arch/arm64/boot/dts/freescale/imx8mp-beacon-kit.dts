@@ -19,6 +19,14 @@
 		ethernet1 = &fec;
 	};
 
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm2 0 100000 0>;
+		brightness-levels = <0 100>;
+		num-interpolated-steps = <100>;
+		default-brightness-level = <70>;
+	};
+
 	chosen {
 		stdout-path = &uart2;
 	};
@@ -135,12 +143,53 @@
 		};
 	};
 
+	panel-1 {
+		compatible = "ampire,AM-800480B3TMQW-T00H-A", "panel-dpi";
+		power-supply = <&reg_lcd1>;
+		enable-gpios = <&pca6416_3 13 GPIO_ACTIVE_HIGH>;
+		width-mm = <223>;
+		height-mm = <125>;
+		backlight = <&backlight>;
+
+		port {
+			panel1_in: endpoint {
+				remote-endpoint = <&ldb_lvds_ch1>;
+			};
+		};
+
+		panel-timing {
+			/* 800x480@60Hz */
+			clock-frequency = <30000000>;
+			hactive = <800>;
+			vactive = <480>;
+			hsync-len = <48>;
+			hfront-porch = <40>;
+			hback-porch = <40>;
+			vfront-porch = <13>;
+			vback-porch = <29>;
+			vsync-len = <1>;
+			hsync-active = <1>;
+			vsync-active = <1>;
+			de-active = <1>;
+			pixelclk-active = <0>;
+		};
+	};
+
 	reg_audio: regulator-wm8962 {
 		compatible = "regulator-fixed";
 		regulator-name = "3v3_aud";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		gpio = <&pca6416_1 11 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	reg_lcd1: regulator-lcd1 {
+		compatible = "regulator-fixed";
+		regulator-name = "lvds-1 power";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&pca6416_3 14 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
 	};
 
@@ -457,6 +506,38 @@
 	status = "okay";
 };
 
+&lcdif2 {
+	status = "okay";
+};
+
+&lvds_bridge {
+	assigned-clocks = <&clk IMX8MP_CLK_MEDIA_LDB>, <&clk IMX8MP_AUDIO_PLL2_OUT>;
+	assigned-clock-parents = <&clk IMX8MP_AUDIO_PLL2_OUT>;
+	assigned-clock-rates = <210000000>, <210000000>;
+	status = "okay";
+
+	ports {
+		port@2 {
+			ldb_lvds_ch1: endpoint {
+				remote-endpoint = <&panel1_in>;
+			};
+		};
+	};
+};
+
+&media_blk_ctrl {
+	assigned-clocks = <&clk IMX8MP_CLK_MEDIA_AXI>,
+			  <&clk IMX8MP_CLK_MEDIA_APB>,
+			  <&clk IMX8MP_CLK_MEDIA_DISP1_PIX>,
+			  <&clk IMX8MP_CLK_MEDIA_DISP2_PIX>,
+			  <&clk IMX8MP_VIDEO_PLL1>;
+	assigned-clock-parents = <&clk IMX8MP_SYS_PLL2_1000M>,
+				 <&clk IMX8MP_SYS_PLL1_800M>,
+				 <&clk IMX8MP_VIDEO_PLL1_OUT>,
+				 <&clk IMX8MP_AUDIO_PLL2_OUT>;
+	assigned-clock-rates = <500000000>, <200000000>, <0>, <0>, <1039500000>;
+};
+
 &micfil {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pdm>;
@@ -494,6 +575,12 @@
 	clocks = <&pcieclk 1>;
 	clock-names = "ref";
 	status = "okay";
+};
+
+&pwm2 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_pwm2>;
 };
 
 &sai3 {
@@ -596,6 +683,13 @@
 };
 
 &iomuxc {
+
+	pinctrl_pwm2: pwm2grp {
+		fsl,pins = <
+			MX8MP_IOMUXC_GPIO1_IO09__PWM2_OUT	0x116
+		>;
+	};
+
 	pinctrl_ecspi2: ecspi2grp {
 		fsl,pins = <
 			MX8MP_IOMUXC_ECSPI2_SCLK__ECSPI2_SCLK	0x82
