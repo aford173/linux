@@ -1003,7 +1003,7 @@ static int ili210x_i2c_probe(struct i2c_client *client)
 	}
 
 	error = devm_request_threaded_irq(dev, client->irq, NULL, ili210x_irq,
-					  IRQF_ONESHOT, client->name, priv);
+					  IRQF_ONESHOT | IRQF_SHARED, client->name, priv);
 	if (error) {
 		dev_err(dev, "Unable to request touchscreen IRQ, err: %d\n",
 			error);
