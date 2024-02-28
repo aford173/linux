@@ -529,6 +529,14 @@
 		};
 	};
 
+	touchscreen: touchscreen@26 {
+		compatible = "ilitek,ili2117";
+		reg = <0x26>;
+		vdd-supply = <&reg_lcd1_reset>;
+		interrupt-parent = <&pca6416_3>;
+		interrupts = <10 IRQ_TYPE_EDGE_FALLING>;
+	};
+
 	usb-typec@47 {
 		compatible = "ti,hd3ss3220";
 		reg = <0x47>;
