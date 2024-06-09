@@ -7,6 +7,7 @@
 
 #include <dt-bindings/usb/pd.h>
 #include <dt-bindings/phy/phy-imx8-pcie.h>
+#include <dt-bindings/media/video-interfaces.h>
 #include "imx8mp.dtsi"
 #include "imx8mp-beacon-som.dtsi"
 
@@ -21,6 +22,12 @@
 
 	chosen {
 		stdout-path = &uart2;
+	};
+
+	clk_imx219: clock-camera {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
 	};
 
 	clk_xtal25: clock-xtal25 {
@@ -142,6 +149,19 @@
 		regulator-max-microvolt = <3300000>;
 		gpio = <&pca6416_1 11 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
+	};
+
+	reg_cam0: regulator-camera0 {
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_csi0>;
+		compatible = "regulator-fixed";
+		regulator-name = "reg_cam0";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&gpio1 6 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <100000>;
+		regulator-always-on;
 	};
 
 	reg_usdhc2_vmmc: regulator-usdhc2 {
@@ -288,6 +308,25 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_i2c2>;
 	status = "okay";
+
+	imx219_1@10 {
+		compatible = "sony,imx219";
+		reg = <0x10>;
+		clocks = <&clk_imx219>;
+		VANA-supply = <&reg_cam0>;
+		VDIG-supply = <&reg_cam0>;
+		VDDL-supply = <&reg_cam0>;
+
+		port {
+			imx219_0_ep: endpoint {
+				remote-endpoint = <&mipi_csi0_ep>;
+				data-lanes = <1 2 3 4>;
+				clock-lanes = <0>;
+				clock-noncontinuous;
+				link-frequencies = /bits/ 64 <363000000>;
+			};
+		};
+	};
 
 	pca6416_3: gpio@20 {
 		compatible = "nxp,pcal6416";
@@ -455,6 +494,24 @@
 	};
 };
 
+
+/delete-node/ &isi_in_0;
+
+
+&isp_0 {
+	status = "okay";
+
+	ports {
+		port@1 {
+			isp0_in: endpoint {
+				bus-type = <MEDIA_BUS_TYPE_PARALLEL>;
+				remote-endpoint = <&mipi_csi_0_out>;
+			};
+		};
+	};
+};
+
+
 &lcdif1 {
 	status = "okay";
 };
@@ -466,6 +523,29 @@
 	assigned-clock-parents = <&clk IMX8MP_AUDIO_PLL1_OUT>;
 	assigned-clock-rates = <49152000>;
 	status = "okay";
+};
+
+&mipi_csi_0 {
+	clock-frequency = <500000000>;
+	assigned-clocks = <&clk IMX8MP_CLK_MEDIA_CAM1_PIX>,
+			  <&clk IMX8MP_CLK_MEDIA_MIPI_PHY1_REF>;
+	assigned-clock-parents = <&clk IMX8MP_SYS_PLL2_1000M>,
+				 <&clk IMX8MP_CLK_24M>;
+	assigned-clock-rates = <500000000>;
+	status = "okay";
+
+	ports {
+		port@0 {
+			mipi_csi0_ep: endpoint {
+				remote-endpoint = <&imx219_0_ep>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+	};
+};
+
+&mipi_csi_0_out {
+	remote-endpoint = <&isp0_in>;
 };
 
 &mipi_dsi {
@@ -599,6 +679,12 @@
 };
 
 &iomuxc {
+	pinctrl_csi0: csi0_grp {
+		fsl,pins = <
+			MX8MP_IOMUXC_GPIO1_IO06__GPIO1_IO06	0x10
+		>;
+	};
+
 	pinctrl_ecspi2: ecspi2grp {
 		fsl,pins = <
 			MX8MP_IOMUXC_ECSPI2_SCLK__ECSPI2_SCLK	0x82
