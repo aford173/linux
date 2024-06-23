@@ -167,16 +167,6 @@ static struct emac_platform_data am35xx_emac_pdata = {
 	.interrupt_disable	= am35xx_disable_emac_int,
 };
 
-static void __init am35xx_emac_reset(void)
-{
-	u32 v;
-
-	v = omap_ctrl_readl(AM35XX_CONTROL_IP_SW_RESET);
-	v &= ~AM35XX_CPGMACSS_SW_RST;
-	omap_ctrl_writel(v, AM35XX_CONTROL_IP_SW_RESET);
-	omap_ctrl_readl(AM35XX_CONTROL_IP_SW_RESET); /* OCP barrier */
-}
-
 static struct gpiod_lookup_table cm_t3517_wlan_gpio_table = {
 	.dev_id = NULL,
 	.table = {
@@ -230,14 +220,8 @@ static void __init omap3_sbc_t3517_legacy_init(void)
 	gpiod_add_lookup_table(&omap3_sbc_t3517_usb_gpio_table);
 	omap3_sbc_t3x_usb_hub_init("cm-t3517 usb hub", 0);
 	omap3_sbc_t3x_usb_hub_init("sb-t35 usb hub", 1);
-	am35xx_emac_reset();
 	hsmmc2_internal_input_clk();
 	omap3_sbc_t3517_wifi_init();
-}
-
-static void __init am3517_evm_legacy_init(void)
-{
-	am35xx_emac_reset();
 }
 
 static void __init nokia_n900_legacy_init(void)
@@ -512,7 +496,6 @@ static struct pdata_init pdata_quirks[] __initdata = {
 	{ "nokia,omap3-n950", hsmmc2_internal_input_clk, },
 	{ "logicpd,dm3730-torpedo-devkit", omap3_logicpd_torpedo_init, },
 	{ "ti,omap3-evm-37xx", omap3_evm_legacy_init, },
-	{ "ti,am3517-evm", am3517_evm_legacy_init, },
 	{ "technexion,omap3-tao3530", omap3_tao3530_legacy_init, },
 	{ "openpandora,omap3-pandora-600mhz", omap3_pandora_legacy_init, },
 	{ "openpandora,omap3-pandora-1ghz", omap3_pandora_legacy_init, },
