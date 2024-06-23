@@ -135,6 +135,12 @@
 			pinctrl-single,function-mask = <0xff1f>;
 		};
 
+		am3517_sw_reset: reset-controller@48002598 {
+			compatible = "ti,am35xx-ip_sw_reset";
+			reg = <0x48002598 0x4>;
+			#reset-cells = <1>;
+		};
+
 		hecc: can@5c050000 {
 			compatible = "ti,am3517-hecc";
 			status = "disabled";
