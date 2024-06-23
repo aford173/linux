@@ -5,6 +5,7 @@
  * Copyright (C) 2013 Texas Instruments Incorporated - https://www.ti.com/
  */
 
+#include <dt-bindings/reset/am3517-ip-sw-reset.h>
 #include "omap3.dtsi"
 
 /* AM3517 doesn't appear to have the crypto engines defined in omap3.dtsi */
@@ -89,6 +90,7 @@
 			status = "disabled";
 			reg = <0x5c000000 0x30000>;
 			interrupts = <67 68 69 70>;
+			resets = <&am3517_sw_reset CPGMACSS_SW_RST>;
 			syscon = <&scm_conf>;
 			ti,davinci-ctrl-reg-offset = <0x10000>;
 			ti,davinci-ctrl-mod-reg-offset = <0>;
