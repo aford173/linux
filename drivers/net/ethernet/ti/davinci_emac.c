@@ -40,6 +40,7 @@
 #include <linux/platform_device.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
+#include <linux/reset.h>
 #include <linux/semaphore.h>
 #include <linux/phy.h>
 #include <linux/bitops.h>
@@ -1812,7 +1813,21 @@ static int davinci_emac_probe(struct platform_device *pdev)
 	struct cpdma_params dma_params;
 	struct clk *emac_clk;
 	unsigned long emac_bus_frequency;
+	struct device *dev = &pdev->dev;
+	struct reset_control *resets;
 
+	/* The AM3517 has a special reset controller which needs to
+	 * assert then deassert reset before the IP is available
+	 */
+
+	resets = devm_reset_control_array_get_optional_exclusive(dev);
+	if (IS_ERR(resets))
+		return dev_err_probe(dev, PTR_ERR(resets), "Failed to get resets");
+
+	if (resets) {
+		reset_control_assert(resets);
+		reset_control_deassert(resets);
+	}
 
 	/* obtain emac clock from kernel */
 	emac_clk = devm_clk_get(&pdev->dev, NULL);
