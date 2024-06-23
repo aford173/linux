@@ -1,0 +1,12 @@
+/* SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause */
+
+#ifndef DT_BINDING_RESET_AM3517_CONTROL_IP_SW_RESET_H
+#define DT_BINDING_RESET_AM3517_CONTROL_IP_SW_RESET_H
+
+#define USB20OTGSS_SW_RST 0
+#define CPGMACSS_SW_RST	1
+#define VPFE_VBUSP_SW_RST 2
+#define HECC_SW_RST 3
+#define VPFE_PCLK_SW_RST 4
+
+#endif
