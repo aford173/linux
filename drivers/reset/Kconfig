@@ -263,6 +263,15 @@ config RESET_SUNXI
 	help
 	  This enables the reset driver for Allwinner SoCs.
 
+config RESET_TI_AM35177_IP_SW
+	tristate "TI AM3517 IP SW RESET Reset Driver"
+	depends on HAS_IOMEM
+	help
+	  This enables the reset driver support for TI AM35xx IP_SW_RESET
+	  memory-mapped reset registers. If you wish to use the reset
+	  framework for such memory-mapped devices,
+	  say Y here. Otherwise, say N.
+
 config RESET_TI_SCI
 	tristate "TI System Control Interface (TI-SCI) reset driver"
 	depends on TI_SCI_PROTOCOL || (COMPILE_TEST && TI_SCI_PROTOCOL=n)
