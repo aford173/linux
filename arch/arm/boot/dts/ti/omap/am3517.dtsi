@@ -5,8 +5,8 @@
  * Copyright (C) 2013 Texas Instruments Incorporated - https://www.ti.com/
  */
 
-#include <dt-bindings/reset/am3517-ip-sw-reset.h>
 #include "omap3.dtsi"
+#include <dt-bindings/reset/am3517-ip-sw-reset.h>
 
 /* AM3517 doesn't appear to have the crypto engines defined in omap3.dtsi */
 /delete-node/ &aes1_target;
@@ -53,35 +53,58 @@
 	};
 
 	ocp@68000000 {
-		target-module@5c040000 {
-			compatible = "ti,sysc-omap2", "ti,sysc";
-			reg = <0x5c040400 0x4>,
-			      <0x5c040404 0x4>,
-			      <0x5c040408 0x4>;
-			reg-names = "rev", "sysc", "syss";
-			ti,sysc-mask = <(SYSC_OMAP2_ENAWAKEUP |
-					 SYSC_OMAP2_SOFTRESET |
-					 SYSC_OMAP2_AUTOIDLE)>;
-			ti,sysc-midle = <SYSC_IDLE_FORCE>,
-					<SYSC_IDLE_NO>,
-					<SYSC_IDLE_SMART>;
-			ti,sysc-sidle = <SYSC_IDLE_FORCE>,
-					<SYSC_IDLE_NO>,
-					<SYSC_IDLE_SMART>;
-			ti,syss-mask = <1>;
-			clocks = <&hsotgusb_ick_am35xx>;
-			clock-names = "fck";
-			#address-cells = <1>;
-			#size-cells = <1>;
-			ranges = <0x0 0x5c040000 0x1000>;
+		am35x_otg_hs: am35x_otg_hs@5c040000 {
+			compatible = "ti,am3517-musb";
+			status = "disabled";
+			reg = <0x5c040000 0x1800>;
+			interrupts = <71>;
+			interrupt-names = "mc";
+			clocks = <&hsotgusb_ick_am35xx>, <&hsotgusb_fck_am35xx>;
+			clock-names = "ick", "fck";
+			resets = <&am3517_sw_reset USB20OTGSS_SW_RST>;
+			phys = <&am3517_usbotg_phy>;
+			multipoint = <1>;
+			num-eps = <16>;
+			ram-bits = <12>;
+			syscon = <&am3517_ctrl_llv_intr_clear>;
 
-			am35x_otg_hs: am35x_otg_hs@0 {
-				compatible = "ti,omap3-musb";
-				status = "disabled";
-				reg = <0 0x1000>;
-				interrupts = <71>;
-				interrupt-names = "mc";
-			};
+			dmas = <&cppi41dma  0 0>, <&cppi41dma  1 0>,
+			       <&cppi41dma  2 0>, <&cppi41dma  3 0>,
+			       <&cppi41dma  4 0>, <&cppi41dma  5 0>,
+			       <&cppi41dma  6 0>, <&cppi41dma  7 0>,
+			       <&cppi41dma  8 0>, <&cppi41dma  9 0>,
+			       <&cppi41dma 10 0>, <&cppi41dma 11 0>,
+			       <&cppi41dma 12 0>, <&cppi41dma 13 0>,
+			       <&cppi41dma 14 0>, <&cppi41dma  0 1>,
+			       <&cppi41dma  1 1>, <&cppi41dma  2 1>,
+			       <&cppi41dma  3 1>, <&cppi41dma  4 1>,
+			       <&cppi41dma  5 1>, <&cppi41dma  6 1>,
+			       <&cppi41dma  7 1>, <&cppi41dma  8 1>,
+			       <&cppi41dma  9 1>, <&cppi41dma 10 1>,
+			       <&cppi41dma 11 1>, <&cppi41dma 12 1>,
+			       <&cppi41dma 13 1>, <&cppi41dma 14 1>;
+
+			dma-names = "rx1", "rx2", "rx3", "rx4", "rx5",
+				    "rx6", "rx7", "rx8", "rx9", "rx10",
+				    "rx11", "rx12", "rx13", "rx14", "rx15",
+				    "tx1", "tx2", "tx3", "tx4", "tx5",
+				    "tx6", "tx7", "tx8", "tx9", "tx10",
+				    "tx11", "tx12", "tx13", "tx14", "tx15";
+		};
+
+		cppi41dma: dma-controller@5c041800 {
+			compatible = "ti,am35x-cppi41";
+			reg =  <0x5c041800 0x0200>,
+			       <0x5c042000 0x2000>,
+			       <0x5c044000 0x4000>;
+			reg-names = "controller", "scheduler", "queuemgr";
+			interrupts = <71>;
+			#dma-cells = <2>;
+			/* For backwards compatibility: */
+			#dma-channels = <30>;
+			dma-channels = <30>;
+			#dma-requests = <256>;
+			dma-requests = <256>;
 		};
 
 		davinci_emac: ethernet@5c000000 {
@@ -136,6 +159,18 @@
 			pinctrl-single,register-width = <16>;
 			pinctrl-single,function-mask = <0xff1f>;
 		};
+
+		am3517_usbotg_phy: phy@48002580 {
+			compatible = "ti,am35xx-musb-phy";
+			reg = <0x48002580 0x4>;
+			#phy-cells = <0>;
+		};
+
+		am3517_ctrl_llv_intr_clear: syscon@48002594 {
+		        compatible = "ti,am3517-ctrl-llv-intr", "syscon";
+		        reg = <0x48002594 0x4>;
+		};
+
 
 		am3517_sw_reset: reset-controller@48002598 {
 			compatible = "ti,am35xx-ip_sw_reset";
