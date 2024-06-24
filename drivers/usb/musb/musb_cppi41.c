@@ -776,6 +776,11 @@ cppi41_dma_controller_create(struct musb *musb, void __iomem *base)
 		controller->autoreq_reg = DA8XX_USB_AUTOREQ;
 		controller->set_dma_mode = da8xx_set_dma_mode;
 		controller->num_channels = DA8XX_DMA_NUM_CHANNELS;
+	} if (musb->ops->quirks & MUSB_AM35XX) {
+		controller->tdown_reg = DA8XX_USB_TEARDOWN;
+		controller->autoreq_reg = DA8XX_USB_AUTOREQ;
+		controller->set_dma_mode = cppi41_set_dma_mode;
+		controller->num_channels = MUSB_DMA_NUM_CHANNELS - 1;
 	} else {
 		controller->tdown_reg = USB_TDOWN;
 		controller->autoreq_reg = USB_CTRL_AUTOREQ;

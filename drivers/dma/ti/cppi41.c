@@ -28,8 +28,8 @@
 
 /* DMA engine */
 #define DMA_TDFDQ	4
-#define DMA_TXGCR(x)	(0x800 + (x) * 0x20)
-#define DMA_RXGCR(x)	(0x808 + (x) * 0x20)
+#define DMA_TXGCR(x)	(0x00 + (x) * 0x20)
+#define DMA_RXGCR(x)	(0x08 + (x) * 0x20)
 #define RXHPCRA0		4
 
 #define GCR_CHAN_ENABLE		(1 << 31)
@@ -140,6 +140,7 @@ struct cppi41_dd {
 	struct chan_queues td_queue;
 	u16 first_completion_queue;
 	u16 qmgr_num_pend;
+	u16 offset;
 	u32 n_chans;
 	u8 platform;
 
@@ -224,6 +225,43 @@ static const struct chan_queues am335x_usb_queues_rx[] = {
 	[29] = { .submit = 30, .complete = 155},
 };
 
+static struct chan_queues am35x_usb_queues_tx[] = {
+	[0] = { .submit = 32, .complete =  63},
+	[1] = { .submit = 34, .complete =  63},
+	[2] = { .submit = 36, .complete =  63},
+	[3] = { .submit = 38, .complete =  63},
+	[4] = { .submit = 40, .complete =  63},
+	[5] = { .submit = 42, .complete =  63},
+	[6] = { .submit = 44, .complete =  63},
+	[7] = { .submit = 46, .complete = 63},
+	[8] = { .submit = 48, .complete = 63},
+	[9] = { .submit = 50, .complete = 63},
+	[10] = { .submit = 52, .complete = 63},
+	[11] = { .submit = 54, .complete = 63},
+	[12] = { .submit = 56, .complete = 63},
+	[13] = { .submit = 58, .complete = 63},
+	[14] = { .submit = 60, .complete = 63},
+};
+
+static const struct chan_queues am35x_usb_queues_rx[] = {
+	/* USB0 ENDP 1 */
+	[0] = { .submit =  1, .complete = 65},
+	[1] = { .submit =  2, .complete = 65},
+	[2] = { .submit =  3, .complete = 65},
+	[3] = { .submit =  4, .complete = 65},
+	[4] = { .submit =  5, .complete = 65},
+	[5] = { .submit =  6, .complete = 65},
+	[6] = { .submit =  7, .complete = 65},
+	[7] = { .submit =  8, .complete = 65},
+	[8] = { .submit =  9, .complete = 65},
+	[9] = { .submit = 10, .complete = 65},
+	[10] = { .submit = 11, .complete = 65},
+	[11] = { .submit = 12, .complete = 65},
+	[12] = { .submit = 13, .complete = 65},
+	[13] = { .submit = 14, .complete = 65},
+	[14] = { .submit = 15, .complete = 65},
+};
+
 static const struct chan_queues da8xx_usb_queues_tx[] = {
 	[0] = { .submit =  16, .complete = 24},
 	[1] = { .submit =  18, .complete = 24},
@@ -244,6 +282,7 @@ struct cppi_glue_infos {
 	struct chan_queues td_queue;
 	u16 first_completion_queue;
 	u16 qmgr_num_pend;
+	u16 offset;
 };
 
 static struct cppi41_channel *to_cpp41_chan(struct dma_chan *c)
@@ -743,6 +782,7 @@ static int cppi41_stop_chan(struct dma_chan *chan)
 
 	desc_phys = lower_32_bits(c->desc_phys);
 	desc_num = (desc_phys - cdd->descs_phys) / sizeof(struct cppi41_desc);
+
 	if (!cdd->chan_busy[desc_num]) {
 		struct cppi41_channel *cc, *_ct;
 
@@ -794,10 +834,10 @@ static int cppi41_add_chans(struct device *dev, struct cppi41_dd *cdd)
 
 		cchan->cdd = cdd;
 		if (i & 1) {
-			cchan->gcr_reg = cdd->ctrl_mem + DMA_TXGCR(i >> 1);
+			cchan->gcr_reg = cdd->ctrl_mem + cdd->offset + DMA_TXGCR(i >> 1);
 			cchan->is_tx = 1;
 		} else {
-			cchan->gcr_reg = cdd->ctrl_mem + DMA_RXGCR(i >> 1);
+			cchan->gcr_reg = cdd->ctrl_mem + cdd->offset + DMA_RXGCR(i >> 1);
 			cchan->is_tx = 0;
 		}
 		cchan->port_num = i >> 1;
@@ -1002,6 +1042,16 @@ static const struct cppi_glue_infos am335x_usb_infos = {
 	.td_queue = { .submit = 31, .complete = 0 },
 	.first_completion_queue = 93,
 	.qmgr_num_pend = 5,
+	.offset = 0x800,
+};
+
+static const struct cppi_glue_infos am35x_usb_infos = {
+	.queues_rx = am35x_usb_queues_rx,
+	.queues_tx = am35x_usb_queues_tx,
+	.td_queue = { .submit = 31, .complete = 0 },
+	.first_completion_queue = 63,
+	.qmgr_num_pend = 5,
+	.offset = 0x000,
 };
 
 static const struct cppi_glue_infos da8xx_usb_infos = {
@@ -1010,11 +1060,13 @@ static const struct cppi_glue_infos da8xx_usb_infos = {
 	.td_queue = { .submit = 31, .complete = 0 },
 	.first_completion_queue = 24,
 	.qmgr_num_pend = 2,
+	.offset = 0x800,
 };
 
 static const struct of_device_id cppi41_dma_ids[] = {
 	{ .compatible = "ti,am3359-cppi41", .data = &am335x_usb_infos},
 	{ .compatible = "ti,da830-cppi41", .data = &da8xx_usb_infos},
+	{ .compatible = "ti,am35x-cppi41", .data = &am35x_usb_infos},
 	{},
 };
 MODULE_DEVICE_TABLE(of, cppi41_dma_ids);
@@ -1100,6 +1152,7 @@ static int cppi41_dma_probe(struct platform_device *pdev)
 	cdd->td_queue = glue_info->td_queue;
 	cdd->qmgr_num_pend = glue_info->qmgr_num_pend;
 	cdd->first_completion_queue = glue_info->first_completion_queue;
+	cdd->offset = glue_info->offset;
 
 	/* Parse new and deprecated dma-channels properties */
 	ret = of_property_read_u32(dev->of_node,
