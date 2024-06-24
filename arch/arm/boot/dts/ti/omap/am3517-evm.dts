@@ -169,6 +169,13 @@
 	};
 };
 
+&am35x_otg_hs {
+	interface-type = <0>;
+	mode = <3>;	/* OTG Mode */
+	power = <500>;	/* 500mA */
+	status = "okay";
+};
+
 &davinci_emac {
 	pinctrl-names = "default";
 	pinctrl-0 = <&ethernet_pins>;
