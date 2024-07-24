@@ -14,15 +14,19 @@
  * da8xx.c would be merged to this file after testing.
  */
 
+#include <linux/clk.h>
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <linux/err.h>
+#include <linux/mfd/syscon.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
 #include <linux/pm_runtime.h>
 #include <linux/module.h>
 #include <linux/usb/usb_phy_generic.h>
 #include <linux/platform_data/usb-omap.h>
+#include <linux/regmap.h>
+#include <linux/reset.h>
 #include <linux/sizes.h>
 
 #include <linux/of.h>
@@ -33,7 +37,16 @@
 
 #include "musb_core.h"
 
+/* AM35xx CONTROL_LVL_INTR_CLEAR Register */
+#define AM35XX_USBOTGSS_INT_CLR		BIT(4)
+
 static const struct of_device_id musb_dsps_of_match[];
+
+enum musb_type {
+	AM33XX,
+	AM35XX,
+	DA8XX,
+};
 
 /*
  * DSPS musb wrapper register offset.
@@ -62,7 +75,7 @@ struct dsps_musb_wrapper {
 	unsigned	usb_shift:5;
 	u32		usb_mask;
 	u32		usb_bitmap;
-	unsigned	drvvbus:5;
+	unsigned	drvvbus:9;
 
 	unsigned	txep_shift:5;
 	u32		txep_mask;
@@ -80,6 +93,9 @@ struct dsps_musb_wrapper {
 	unsigned	iddig_mux:5;
 	/* miscellaneous stuff */
 	unsigned	poll_timeout;
+
+	u32		usb_eoi_reg;	/* DA8XX and AM35XX */
+	enum musb_type	type;
 };
 
 /*
@@ -110,6 +126,19 @@ struct dsps_glue {
 	struct dsps_context context;
 	struct debugfs_regset32 regset;
 	struct dentry *dbgfs_root;
+
+	/* AM35xx and DA8xx Need a separate PHY driver */
+	struct phy *phy;
+
+	/* AM35xx and DA850 Need extra clocks */
+	struct clk *fck;
+	struct clk *ick;
+
+	/* AM35 need a Syscon driver to clear interrupts */
+	struct regmap *syscon;
+
+	/* AM35 Needs a reset driver */
+	struct reset_control	*resets;
 };
 
 static const struct debugfs_reg32 dsps_musb_regs[] = {
@@ -158,7 +187,6 @@ static void dsps_mod_timer_optional(struct dsps_glue *glue)
 #define USBSS_IRQ_STATUS	0x28
 #define USBSS_IRQ_ENABLER	0x2c
 #define USBSS_IRQ_CLEARR	0x30
-
 #define USBSS_IRQ_PD_COMP	(1 << 2)
 
 /*
@@ -175,10 +203,13 @@ static void dsps_musb_enable(struct musb *musb)
 	/* Workaround: setup IRQs through both register sets. */
 	epmask = ((musb->epmask & wrp->txep_mask) << wrp->txep_shift) |
 	       ((musb->epmask & wrp->rxep_mask) << wrp->rxep_shift);
-	coremask = (wrp->usb_bitmap & ~MUSB_INTR_SOF);
-
 	musb_writel(reg_base, wrp->epintr_set, epmask);
-	musb_writel(reg_base, wrp->coreintr_set, coremask);
+
+	coremask = (wrp->usb_bitmap);
+	if (wrp->type == AM33XX)
+		coremask &= ~MUSB_INTR_SOF;
+	musb_writel(reg_base, wrp->coreintr_set, wrp->usb_bitmap);
+
 	/*
 	 * start polling for runtime PM active and idle,
 	 * and for ID change in dual-role idle mode.
@@ -200,6 +231,10 @@ static void dsps_musb_disable(struct musb *musb)
 	musb_writel(reg_base, wrp->coreintr_clear, wrp->usb_bitmap);
 	musb_writel(reg_base, wrp->epintr_clear,
 			 wrp->txep_bitmap | wrp->rxep_bitmap);
+
+	/* AM35XX and DA8XX need to clear the End of Interrupt Register */
+	if (wrp->type == AM35XX || wrp->type == DA8XX)
+		musb_writel(reg_base, wrp->usb_eoi_reg, 0);
 	del_timer_sync(&musb->dev_timer);
 }
 
@@ -310,6 +345,16 @@ static void dsps_musb_clear_ep_rxintr(struct musb *musb, int epnum)
 	musb_writel(musb->ctrl_base, wrp->epintr_status, epintr);
 }
 
+static void dsps_clear_am35xx_interrupt(struct dsps_glue *glue)
+{
+	u32 barrier;
+
+	regmap_update_bits(glue->syscon, 0, AM35XX_USBOTGSS_INT_CLR, AM35XX_USBOTGSS_INT_CLR);
+
+	/* Register must be read after writing */
+	regmap_read(glue->syscon, 0, &barrier);
+}
+
 static irqreturn_t dsps_interrupt(int irq, void *hci)
 {
 	struct musb  *musb = hci;
@@ -328,17 +373,24 @@ static irqreturn_t dsps_interrupt(int irq, void *hci)
 	musb->int_rx = (epintr & wrp->rxep_bitmap) >> wrp->rxep_shift;
 	musb->int_tx = (epintr & wrp->txep_bitmap) >> wrp->txep_shift;
 
-	if (epintr)
+	if (epintr && wrp->type == AM33XX)
 		musb_writel(reg_base, wrp->epintr_status, epintr);
+	else
+		musb_writel(reg_base, wrp->epintr_clear, epintr);
 
 	/* Get usb core interrupts */
 	usbintr = musb_readl(reg_base, wrp->coreintr_status);
 	if (!usbintr && !epintr)
-		goto out;
+		goto eoi;
 
 	musb->int_usb =	(usbintr & wrp->usb_bitmap) >> wrp->usb_shift;
-	if (usbintr)
-		musb_writel(reg_base, wrp->coreintr_status, usbintr);
+
+	if (usbintr) {
+		if (wrp->type == AM33XX)
+			musb_writel(reg_base, wrp->coreintr_status, usbintr);
+		else
+			musb_writel(reg_base, wrp->coreintr_clear, usbintr);
+	}
 
 	dev_dbg(musb->controller, "usbintr (%x) epintr(%x)\n",
 			usbintr, epintr);
@@ -388,6 +440,20 @@ static irqreturn_t dsps_interrupt(int irq, void *hci)
 	if (musb->int_tx || musb->int_rx || musb->int_usb)
 		ret |= musb_interrupt(musb);
 
+eoi:
+	/* EOI needs to be written for the IRQ to be re-asserted for AM35XX and DA8XX */
+	if (wrp->type == AM35XX || wrp->type == DA8XX) {
+		if (ret == IRQ_HANDLED || epintr || usbintr) {
+
+			/* AM35 has a special register to clear level interrupt */
+			if (wrp->type == AM35XX ) {
+				dsps_clear_am35xx_interrupt(glue);
+			}
+			/* write EOI on AM35XX and DA8XX */
+			musb_writel(reg_base, wrp->usb_eoi_reg, 0);
+		}
+	}
+
 	/* Poll for ID change and connect */
 	switch (musb->xceiv->otg->state) {
 	case OTG_STATE_B_IDLE:
@@ -398,7 +464,6 @@ static irqreturn_t dsps_interrupt(int irq, void *hci)
 		break;
 	}
 
-out:
 	spin_unlock_irqrestore(&musb->lock, flags);
 
 	return ret;
@@ -438,12 +503,30 @@ static int dsps_musb_init(struct musb *musb)
 		return PTR_ERR(reg_base);
 	musb->ctrl_base = reg_base;
 
-	/* NOP driver needs change if supporting dual instance */
-	musb->xceiv = devm_usb_get_phy_by_phandle(dev->parent, "phys", 0);
-	if (IS_ERR(musb->xceiv))
-		return PTR_ERR(musb->xceiv);
+	if (wrp->type == AM35XX || wrp->type == DA8XX) {
+		musb->xceiv = usb_get_phy(USB_PHY_TYPE_USB2);
+		if (IS_ERR_OR_NULL(musb->xceiv))
+			return -EPROBE_DEFER;
+	}
+	/* NOP driver needs change if supporting dual instance on AM33XX */
+	else {
+		musb->xceiv = devm_usb_get_phy_by_phandle(dev->parent, "phys", 0);
+		if (IS_ERR(musb->xceiv))
+			return PTR_ERR(musb->xceiv);
+	}
 
 	musb->phy = devm_phy_get(dev->parent, "usb2-phy");
+
+	/* AM35XX uses both FCK and ICK, DA8XX uses FCK */
+	ret = clk_prepare_enable(glue->fck);
+	if (ret) {
+		dev_err(dev, "failed to enable fck\n");
+	}
+
+	ret = clk_prepare_enable(glue->ick);
+	if (ret) {
+		dev_err(dev, "failed to enable ick\n");
+	}
 
 	/* Returns zero if e.g. not clocked */
 	rev = musb_readl(reg_base, wrp->revision);
@@ -470,11 +553,16 @@ static int dsps_musb_init(struct musb *musb)
 
 	musb->isr = dsps_interrupt;
 
-	/* reset the otgdisable bit, needed for host mode to work */
-	val = musb_readl(reg_base, wrp->phy_utmi);
-	val &= ~(1 << wrp->otg_disable);
-	musb_writel(musb->ctrl_base, wrp->phy_utmi, val);
+	if (wrp->type == AM33XX) {
+		/* reset the otgdisable bit, needed for host mode to work */
+		val = musb_readl(reg_base, wrp->phy_utmi);
+		val &= ~(1 << wrp->otg_disable);
+		musb_writel(musb->ctrl_base, wrp->phy_utmi, val);
+	}
 
+	if (wrp->type == AM35XX) {
+		dsps_clear_am35xx_interrupt(glue);
+	}
 	/*
 	 *  Check whether the dsps version has babble control enabled.
 	 * In latest silicon revision the babble control logic is enabled.
@@ -504,6 +592,36 @@ static int dsps_musb_exit(struct musb *musb)
 	debugfs_remove_recursive(glue->dbgfs_root);
 
 	return 0;
+}
+
+/* DA8xx and AM35xx use a separate PHY driver to set the mode */
+static int musb_set_mode_phy(struct musb *musb, u8 musb_mode)
+{
+	struct dsps_glue *glue = dev_get_drvdata(musb->controller->parent);
+	enum phy_mode phy_mode;
+
+	/*
+	 * The PHY has some issues when it is forced in device or host mode.
+	 * Unless the user request another mode, configure the PHY in OTG mode.
+	 */
+	if (!musb->is_initialized)
+		return phy_set_mode(glue->phy, PHY_MODE_USB_OTG);
+
+	switch (musb_mode) {
+	case MUSB_HOST:		/* Force VBUS valid, ID = 0 */
+		phy_mode = PHY_MODE_USB_HOST;
+		break;
+	case MUSB_PERIPHERAL:	/* Force VBUS valid, ID = 1 */
+		phy_mode = PHY_MODE_USB_DEVICE;
+		break;
+	case MUSB_OTG:		/* Don't override the VBUS/ID comparators */
+		phy_mode = PHY_MODE_USB_OTG;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return phy_set_mode(glue->phy, phy_mode);
 }
 
 static int dsps_musb_set_mode(struct musb *musb, u8 mode)
@@ -637,6 +755,19 @@ static void dsps_read_fifo32(struct musb_hw_ep *hw_ep, u16 len, u8 *dst)
 }
 
 #ifdef CONFIG_USB_TI_CPPI41_DMA
+
+/* AM35XX and DA8XX need to clear the EIO register */
+static void legacy_dma_controller_callback(struct dma_controller *c)
+{
+	struct musb *musb = c->musb;
+	struct device *dev = musb->controller;
+	struct dsps_glue *glue = dev_get_drvdata(dev->parent);
+	const struct dsps_musb_wrapper *wrp = glue->wrp;
+	void __iomem *reg_base = musb->ctrl_base;
+
+	musb_writel(reg_base, wrp->usb_eoi_reg, 0);
+}
+
 static void dsps_dma_controller_callback(struct dma_controller *c)
 {
 	struct musb *musb = c->musb;
@@ -654,6 +785,7 @@ dsps_dma_controller_create(struct musb *musb, void __iomem *base)
 {
 	struct dma_controller *controller;
 	struct dsps_glue *glue = dev_get_drvdata(musb->controller->parent);
+	const struct dsps_musb_wrapper *wrp = glue->wrp;
 	void __iomem *usbss_base = glue->usbss_base;
 
 	controller = cppi41_dma_controller_create(musb, base);
@@ -661,7 +793,11 @@ dsps_dma_controller_create(struct musb *musb, void __iomem *base)
 		return controller;
 
 	musb_writel(usbss_base, USBSS_IRQ_ENABLER, USBSS_IRQ_PD_COMP);
-	controller->dma_callback = dsps_dma_controller_callback;
+
+	if (wrp->type == AM35XX || wrp->type == DA8XX)
+		controller->dma_callback = legacy_dma_controller_callback;
+	else
+		controller->dma_callback = dsps_dma_controller_callback;
 
 	return controller;
 }
@@ -687,6 +823,79 @@ static void dsps_dma_controller_suspend(struct dsps_glue *glue) {}
 static void dsps_dma_controller_resume(struct dsps_glue *glue) {}
 #endif
 #endif /* CONFIG_USB_TI_CPPI41_DMA */
+
+
+static void legacy_musb_try_idle(struct musb *musb, unsigned long timeout)
+{
+	static unsigned long last_timer;
+
+	if (timeout == 0)
+		timeout = jiffies + msecs_to_jiffies(3);
+
+	/* Never idle if active, or when VBUS timeout is not set as host */
+	if (musb->is_active || (musb->a_wait_bcon == 0 &&
+				musb->xceiv->otg->state == OTG_STATE_A_WAIT_BCON)) {
+		dev_dbg(musb->controller, "%s active, deleting timer\n",
+			usb_otg_state_string(musb->xceiv->otg->state));
+		del_timer(&musb->dev_timer);
+		last_timer = jiffies;
+		return;
+	}
+
+	if (time_after(last_timer, timeout) && timer_pending(&musb->dev_timer)) {
+		dev_dbg(musb->controller, "Longer idle timer already pending, ignoring...\n");
+		return;
+	}
+	last_timer = timeout;
+
+	dev_dbg(musb->controller, "%s inactive, starting idle timer for %u ms\n",
+		usb_otg_state_string(musb->xceiv->otg->state),
+		jiffies_to_msecs(timeout - jiffies));
+	mod_timer(&musb->dev_timer, timeout);
+}
+
+static void legacy_musb_set_vbus(struct musb *musb, int is_on)
+{
+	WARN_ON(is_on && is_peripheral_active(musb));
+}
+
+static const struct musb_platform_ops am35x_ops = {
+	.quirks		= MUSB_DMA_CPPI41 | MUSB_AM35XX | MUSB_INDEXED_EP,
+	.init		= dsps_musb_init,
+	.exit		= dsps_musb_exit,
+
+#ifdef CONFIG_USB_TI_CPPI41_DMA
+	.dma_init	= dsps_dma_controller_create,
+	.dma_exit	= cppi41_dma_controller_destroy,
+#endif
+	.enable		= dsps_musb_enable,
+	.disable	= dsps_musb_disable,
+
+	.set_mode	= musb_set_mode_phy,
+	.try_idle	= legacy_musb_try_idle,
+
+	.set_vbus	= legacy_musb_set_vbus,
+};
+
+static const struct musb_platform_ops da8xx_ops = {
+	.quirks		= MUSB_INDEXED_EP | MUSB_PRESERVE_SESSION |
+			  MUSB_DMA_CPPI41 | MUSB_DA8XX,
+	.init		= dsps_musb_init,
+	.exit		= dsps_musb_exit,
+
+	.fifo_mode	= 2,
+#ifdef CONFIG_USB_TI_CPPI41_DMA
+	.dma_init	= dsps_dma_controller_create,
+	.dma_exit	= cppi41_dma_controller_destroy,
+#endif
+	.enable		= dsps_musb_enable,
+	.disable	= dsps_musb_disable,
+
+	.set_mode	= musb_set_mode_phy,
+	.try_idle	= legacy_musb_try_idle,
+
+	.set_vbus	= legacy_musb_set_vbus,
+};
 
 static struct musb_platform_ops dsps_ops = {
 	.quirks		= MUSB_DMA_CPPI41 | MUSB_INDEXED_EP,
@@ -775,7 +984,13 @@ static int dsps_create_musb_pdev(struct dsps_glue *glue,
 		goto err;
 	}
 	pdata.config = config;
-	pdata.platform_ops = &dsps_ops;
+
+	if (of_device_is_compatible(dev->of_node, "ti,da830-musb"))
+		pdata.platform_ops = &da8xx_ops;
+	if (of_device_is_compatible(dev->of_node, "ti,musb-am35xx"))
+		pdata.platform_ops = &am35x_ops;
+	else
+		pdata.platform_ops = &dsps_ops;
 
 	config->num_eps = get_int_prop(dn, "mentor,num-eps");
 	config->ram_bits = get_int_prop(dn, "mentor,ram-bits");
@@ -812,6 +1027,7 @@ static int dsps_create_musb_pdev(struct dsps_glue *glue,
 		dev_err(dev, "failed to register musb device\n");
 		goto err;
 	}
+
 	return 0;
 
 err:
@@ -862,6 +1078,7 @@ static int dsps_setup_optional_vbus_irq(struct platform_device *pdev,
 
 static int dsps_probe(struct platform_device *pdev)
 {
+	struct device *dev = &pdev->dev;
 	const struct of_device_id *match;
 	const struct dsps_musb_wrapper *wrp;
 	struct dsps_glue *glue;
@@ -877,7 +1094,9 @@ static int dsps_probe(struct platform_device *pdev)
 	}
 	wrp = match->data;
 
-	if (of_device_is_compatible(pdev->dev.of_node, "ti,musb-dm816"))
+	if (of_device_is_compatible(pdev->dev.of_node, "ti,da830-musb") ||
+	    of_device_is_compatible(pdev->dev.of_node, "ti,musb-am35xx") ||
+	    of_device_is_compatible(pdev->dev.of_node, "ti,musb-dm816"))
 		dsps_ops.read_fifo = dsps_read_fifo32;
 
 	/* allocate glue */
@@ -890,6 +1109,40 @@ static int dsps_probe(struct platform_device *pdev)
 	glue->usbss_base = of_iomap(pdev->dev.parent->of_node, 0);
 	if (!glue->usbss_base)
 		return -ENXIO;
+
+	/* AM35XX needs 2 clocks, DA8XX needs 1, and AM33XX doesn't need any */
+	glue->fck = devm_clk_get_optional(&pdev->dev, NULL);
+	if (IS_ERR(glue->fck)) {
+		dev_err(&pdev->dev, "failed to get PHY clock\n");
+		ret = PTR_ERR(glue->fck);
+		goto unregister_pdev;
+	}
+
+	glue->ick = devm_clk_get_optional(&pdev->dev, "ick");
+	if (IS_ERR(glue->ick)) {
+		dev_err(&pdev->dev, "failed to get clock\n");
+		ret = PTR_ERR(glue->ick);
+		goto err4;
+	}
+		
+	/* AM35XX needs some clocks and a syscon driver to clear interrupts */
+	if (glue->wrp->type == AM35XX) {
+		glue->resets = devm_reset_control_array_get_exclusive(dev);
+		if (IS_ERR(glue->resets)) {
+			dev_err(&pdev->dev, "failed to get reset\n");
+		        goto err5;
+		}
+
+		reset_control_assert(glue->resets);
+		reset_control_deassert(glue->resets);
+
+		glue->syscon = syscon_regmap_lookup_by_phandle(dev->of_node, "syscon");
+		if (IS_ERR(glue->syscon)) {
+			if (PTR_ERR(glue->syscon) == -ENODEV)
+				return dev_err_probe(dev, PTR_ERR(glue->syscon), "Failed to get syscon");
+			return PTR_ERR(glue->syscon);
+		}
+	}
 
 	platform_set_drvdata(pdev, glue);
 	pm_runtime_enable(&pdev->dev);
@@ -905,6 +1158,10 @@ static int dsps_probe(struct platform_device *pdev)
 
 	return 0;
 
+err5:
+	clk_put(glue->fck);
+err4:
+	clk_put(glue->ick);
 unregister_pdev:
 	platform_device_unregister(glue->musb);
 err:
@@ -952,19 +1209,135 @@ static const struct dsps_musb_wrapper am33xx_driver_data = {
 	.rxep_mask		= 0xfffe,
 	.rxep_bitmap		= (0xfffe << 16),
 	.poll_timeout		= 2000, /* ms */
+	.type 			= AM33XX,
+};
+
+static const struct dsps_musb_wrapper am35xx_driver_data = {
+	.revision		= 0x00,
+	.control		= 0x04,
+	.status			= 0x08,
+	.epintr_set		= 0x30,
+	.epintr_clear		= 0x28,
+	.epintr_status		= 0x38,
+	.coreintr_set		= 0x50,
+	.coreintr_clear		= 0x48,
+	.coreintr_status	= 0x58,
+	.phy_utmi		= 0xe0,
+	.mode			= 0xe8,
+	.tx_mode		= 0x70,
+	.rx_mode		= 0x74,
+	.reset			= 0,
+
+	.usb_shift		= 16,
+	.usb_mask		= 0x1ff,
+	.usb_bitmap		= (0x1ff << 16),
+	.drvvbus		= 0x100,
+	.txep_shift		= 0,
+	.txep_mask		= 0xffff,
+	.txep_bitmap		= (0xffff << 0),
+	.rxep_shift		= 16,
+	.rxep_mask		= 0xfffe,
+	.rxep_bitmap		= (0xfffe << 16),
+	.poll_timeout		= 2000, /* ms */
+	.usb_eoi_reg		= 0x60,
+	.type 			= AM35XX,
+};
+
+static const struct dsps_musb_wrapper da8xx_driver_data = {
+	.revision		= 0x00,
+	.control		= 0x04,
+	.status			= 0x08,
+	.epintr_set		= 0x24,
+	.epintr_clear		= 0x28,
+	.epintr_status		= 0x30,
+	.coreintr_set		= 0x3c,
+	.coreintr_clear		= 0x34,
+	.coreintr_status	= 0x38,
+	.phy_utmi		= 0xe0,
+	.mode			= 0xe8,
+	.tx_mode		= 0x70,
+	.rx_mode		= 0x74,
+	.reset			= 0,
+
+	.usb_shift		= 0,
+	.usb_mask		= 0x1ff,
+	.usb_bitmap		= (0x1ff << 0),
+	.drvvbus		= 8,
+	.txep_shift		= 0,
+	.txep_mask		= 0xffff,
+	.txep_bitmap		= (0xffff << 0),
+	.rxep_shift		= 16,
+	.rxep_mask		= 0xfffe,
+	.rxep_bitmap		= (0xfffe << 16),
+	.poll_timeout		= 2000, /* ms */
+	.usb_eoi_reg		= 0x3c,
+	.type 			= DA8XX,
 };
 
 static const struct of_device_id musb_dsps_of_match[] = {
 	{ .compatible = "ti,musb-am33xx",
 		.data = &am33xx_driver_data, },
+	{ .compatible = "ti,musb-am35xx",
+		.data = &am35xx_driver_data, },
 	{ .compatible = "ti,musb-dm816",
 		.data = &am33xx_driver_data, },
+	{ .compatible = "ti,da830-musb",
+		.data = &da8xx_driver_data, },
 	{  },
 };
 MODULE_DEVICE_TABLE(of, musb_dsps_of_match);
 
 #ifdef CONFIG_PM_SLEEP
-static int dsps_suspend(struct device *dev)
+
+/* AM35XX and DA850 just need to disable phy and clocks */
+static int dsps_simple_suspend(struct device *dev)
+{
+	struct dsps_glue *glue = dev_get_drvdata(dev);
+	int ret;
+
+	ret = phy_power_off(glue->phy);
+	if (ret)
+		return ret;
+
+	if (glue->ick)
+		clk_disable_unprepare(glue->ick);
+
+	if (glue->fck)
+		clk_disable_unprepare(glue->fck);
+
+	return 0;
+}
+
+/* AM35XX and DA850 just need to enable phy and clocks */
+static int dsps_simple_resume(struct device *dev)
+{
+	struct dsps_glue *glue = dev_get_drvdata(dev);
+	int ret;
+
+	ret = phy_power_on(glue->phy);
+	if (ret)
+		return ret;
+
+	if (glue->fck) {
+		ret = clk_enable(glue->fck);
+		if (ret) {
+			dev_err(dev, "failed to enable PHY clock\n");
+			return ret;
+		}
+	}
+
+	if (glue->ick) {
+		ret = clk_enable(glue->ick);
+		if (ret) {
+			dev_err(dev, "failed to enable clock\n");
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
+static int dsps_am33xx_suspend(struct device *dev)
 {
 	struct dsps_glue *glue = dev_get_drvdata(dev);
 	const struct dsps_musb_wrapper *wrp = glue->wrp;
@@ -998,7 +1371,7 @@ static int dsps_suspend(struct device *dev)
 	return 0;
 }
 
-static int dsps_resume(struct device *dev)
+static int dsps_am33xx_resume(struct device *dev)
 {
 	struct dsps_glue *glue = dev_get_drvdata(dev);
 	const struct dsps_musb_wrapper *wrp = glue->wrp;
@@ -1025,6 +1398,27 @@ static int dsps_resume(struct device *dev)
 	pm_runtime_put(dev);
 
 	return 0;
+}
+
+static int dsps_suspend(struct device *dev)
+{
+	struct dsps_glue *glue = dev_get_drvdata(dev);
+	const struct dsps_musb_wrapper *wrp = glue->wrp;
+
+	if (wrp->type == AM33XX)
+		return dsps_am33xx_suspend(dev);
+	else
+		return dsps_simple_suspend(dev);
+}
+static int dsps_resume(struct device *dev)
+{
+	struct dsps_glue *glue = dev_get_drvdata(dev);
+	const struct dsps_musb_wrapper *wrp = glue->wrp;
+
+	if (wrp->type == AM33XX)
+		return dsps_am33xx_resume(dev);
+	else
+		return dsps_simple_resume(dev);
 }
 #endif
 
