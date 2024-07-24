@@ -54,20 +54,23 @@
 
 	ocp@68000000 {
 		am35x_otg_hs: am35x_otg_hs@5c040000 {
-			compatible = "ti,am3517-musb";
+			compatible = "ti,musb-am35xx";
 			status = "disabled";
-			reg = <0x5c040000 0x1800>;
+			reg = <0x5c040000 0x400>, <0x5c040400 0x200>;
+			reg-names = "control", "mc";
 			interrupts = <71>;
 			interrupt-names = "mc";
-			clocks = <&hsotgusb_ick_am35xx>, <&hsotgusb_fck_am35xx>;
-			clock-names = "ick", "fck";
+			clocks = <&hsotgusb_fck_am35xx>, <&hsotgusb_ick_am35xx>;
+			clock-names = "fck", "ick";
 			resets = <&am3517_sw_reset USB20OTGSS_SW_RST>;
 			phys = <&am3517_usbotg_phy>;
-			multipoint = <1>;
-			num-eps = <16>;
-			ram-bits = <12>;
+			dr_mode = "otg";
+			mentor,multipoint = <1>;
+			mentor,num-eps = <16>;
+			mentor,ram-bits = <12>;
 			syscon = <&am3517_ctrl_llv_intr_clear>;
 
+#if 0
 			dmas = <&cppi41dma  0 0>, <&cppi41dma  1 0>,
 			       <&cppi41dma  2 0>, <&cppi41dma  3 0>,
 			       <&cppi41dma  4 0>, <&cppi41dma  5 0>,
@@ -90,21 +93,19 @@
 				    "tx1", "tx2", "tx3", "tx4", "tx5",
 				    "tx6", "tx7", "tx8", "tx9", "tx10",
 				    "tx11", "tx12", "tx13", "tx14", "tx15";
+#endif
 		};
 
-		cppi41dma: dma-controller@5c041800 {
+		cppi41dma: dma-controller@5c041000 {
 			compatible = "ti,am35x-cppi41";
-			reg =  <0x5c041800 0x0200>,
+			reg =  <0x5c041000 0x1000>,
 			       <0x5c042000 0x2000>,
 			       <0x5c044000 0x4000>;
 			reg-names = "controller", "scheduler", "queuemgr";
 			interrupts = <71>;
 			#dma-cells = <2>;
-			/* For backwards compatibility: */
-			#dma-channels = <30>;
-			dma-channels = <30>;
-			#dma-requests = <256>;
-			dma-requests = <256>;
+			dma-channels = <15>;
+			status = "disabled";
 		};
 
 		davinci_emac: ethernet@5c000000 {
