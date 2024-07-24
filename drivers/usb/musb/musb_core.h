@@ -143,7 +143,6 @@ struct musb_io;
  */
 struct musb_platform_ops {
 
-#define MUSB_AM35XX		BIT(10)
 #define MUSB_G_NO_SKB_RESERVE	BIT(9)
 #define MUSB_DA8XX		BIT(8)
 #define MUSB_PRESERVE_SESSION	BIT(7)
