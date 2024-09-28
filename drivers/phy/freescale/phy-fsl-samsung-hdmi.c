@@ -545,13 +545,6 @@ static long phy_clk_round_rate(struct clk_hw *hw,
 	if (rate > 297000000 || rate < 22250000)
 		return -EINVAL;
 
-	/* Search the fractional divider lookup table */
-	fract_div_phy = fsl_samsung_hdmi_phy_lookup_rate(rate);
-
-	/* If the rate is an exact match, return that value */
-	if (rate == fract_div_phy->pixclk)
-		return fract_div_phy->pixclk;
-
 	/* If the exact match isn't found, calculate the integer divider */
 	int_div_clk = fsl_samsung_hdmi_phy_find_pms(rate, &p, &m, &s);
 
@@ -559,8 +552,15 @@ static long phy_clk_round_rate(struct clk_hw *hw,
 	if (int_div_clk == rate)
 		return int_div_clk;
 
-	/* If neither rate is an exact match, use the value from the LUT */
-	return fract_div_phy->pixclk;
+	/* Search the fractional divider lookup table */
+	fract_div_phy = fsl_samsung_hdmi_phy_lookup_rate(rate);
+
+	/* Determine the closest value to desired and return it */
+	if (fsl_samsung_hdmi_phy_get_closest_rate(rate, int_div_clk,
+						  fract_div_phy->pixclk) == fract_div_phy->pixclk)
+		return fract_div_phy->pixclk;
+
+	return int_div_clk;
 }
 
 static int phy_use_fract_div(struct fsl_samsung_hdmi_phy *phy, const struct phy_config *fract_div_phy)
@@ -589,21 +589,21 @@ static int phy_clk_set_rate(struct clk_hw *hw,
 	u16 m;
 	u8 p, s;
 
-	/* Search the fractional divider lookup table */
-	fract_div_phy = fsl_samsung_hdmi_phy_lookup_rate(rate);
-
-	/* If the rate is an exact match, use that value */
-	if (fract_div_phy->pixclk == rate)
-		return phy_use_fract_div(phy, fract_div_phy);
-
 	/*
-	 * If the rate from the fractional divider is not exact, check the integer divider,
+	 * If the rate from the integer divider is not exact, check the fractional divider,
 	 * and use it if that value is an exact match.
 	 */
 	int_div_clk = fsl_samsung_hdmi_phy_find_pms(rate, &p, &m, &s);
 	fsl_samsung_hdmi_calculate_phy(&calculated_phy_pll_cfg, int_div_clk, p, m, s);
 	if (int_div_clk == rate)
 		return phy_use_integer_div(phy, &calculated_phy_pll_cfg);
+
+	/* Search the fractional divider lookup table */
+	fract_div_phy = fsl_samsung_hdmi_phy_lookup_rate(rate);
+
+	/* If the rate is an exact match, use that value */
+	if (fract_div_phy->pixclk == rate)
+		return phy_use_fract_div(phy, fract_div_phy);
 
 	/*
 	 * Compare the difference between the integer clock and the fractional clock against
