@@ -46,16 +46,26 @@
 
 #define PHY_PLL_DIV_REGS_NUM 7
 
+struct phy_params {
+    int p;
+    int m;
+    int s;
+    int n;
+    int k_s;
+    int lc_s;
+    int n2;
+    int k;
+    int lc;
+};
+
 struct phy_config {
 	u32	pixclk;
 	u8	pll_div_regs[PHY_PLL_DIV_REGS_NUM];
+	struct	phy_params params;
+	long	freq_int;
+	long	freq_frac;
 };
 
-/*
- * The calculated_phy_pll_cfg only handles integer divider for PMS,
- * meaning the last four entries will be fixed, but the first three will
- * be calculated by the PMS calculator.
- */
 static struct phy_config calculated_phy_pll_cfg = {
 	.pixclk = 0,
 	.pll_div_regs = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00 },
@@ -376,7 +386,7 @@ fsl_samsung_hdmi_phy_configure_pll_lock_det(struct fsl_samsung_hdmi_phy *phy,
 	       phy->regs + PHY_REG(14));
 }
 
-static unsigned long fsl_samsung_hdmi_phy_find_pms(unsigned long fout, u8 *p, u16 *m, u8 *s)
+static unsigned long fsl_samsung_hdmi_phy_find_pms(unsigned long fout, struct phy_config *cal_phy)
 {
 	unsigned long best_freq = 0;
 	u32 min_delta = 0xffffffff;
@@ -393,7 +403,7 @@ static unsigned long fsl_samsung_hdmi_phy_find_pms(unsigned long fout, u8 *p, u1
 
 	/* The ref manual states the values of 'P' range from 1 to 11 */
 	for (_p = 1; _p <= 11; ++_p) {
-		for (_s = 1; _s <= 16; ++_s) {
+		for (_s = 1; _s < 17; ++_s) {
 			u64 tmp;
 			u32 delta;
 
@@ -412,9 +422,9 @@ static unsigned long fsl_samsung_hdmi_phy_find_pms(unsigned long fout, u8 *p, u1
 			 */
 			tmp = (u64)fout * (_p * _s);
 			do_div(tmp, 24 * MHZ);
+			_m = tmp;
 			if (tmp > 255)
 				continue;
-			_m = tmp;
 
 			/*
 			 * Rev 2 of the Ref Manual states the
@@ -448,12 +458,122 @@ static unsigned long fsl_samsung_hdmi_phy_find_pms(unsigned long fout, u8 *p, u1
 	}
 done:
 	if (best_freq) {
-		*p = best_p;
-		*m = best_m;
-		*s = best_s;
+		cal_phy->params.p = best_p;
+		cal_phy->params.m = best_m;
+		cal_phy->params.s = best_s;
+		cal_phy->freq_frac = 0;
+		cal_phy->params.n = 4;
+		cal_phy->params.k_s = 0;
+		cal_phy->params.lc_s = 0;
+		cal_phy->params.n2 = 1;
+		cal_phy->params.k = 0;
+		cal_phy->params.lc = 0;
+		cal_phy->freq_int = best_freq / 5;
+		cal_phy->pixclk = best_freq / 5;
 	}
 
 	return best_freq / 5;
+}
+
+static int calc_sdc(struct phy_params params) {
+	return params.m / params.p * 240 / 800 /
+	(params.n * (params.lc_s - params.k_s) / params.lc_s +
+	(params.n - 1) * params.k_s / params.lc_s);
+}
+
+static long calc_f_frac(struct phy_config *config) {
+	int sdc = calc_sdc(config->params);
+	return ((config->freq_int * config->params.k * sdc * config->params.p) /
+		(config->params.lc * config->params.m * 24L) * 5 / config->params.n2);
+}
+
+static void find_frac_params(struct phy_config *config, int f_out)
+{
+	struct phy_config temp;
+	long min_delta = LLONG_MAX;
+	long delta = f_out - config->freq_int;
+	long f_frac, best_f_frac;
+	int k_range_start = delta > 0 ? 0 : -127;
+	int k_range_end = delta > 0 ? 128 : 0;
+	u8 lc_s, best_lc_s;
+	u8 k_s, best_k_s;
+	u8 n = 4;
+	u8 n2 = 1;
+	u8 lc, best_lc;
+	char k, best_k;
+
+	/* We need a temporary structure to find the best, then use it to set config */
+	temp.freq_int = config->freq_int;
+	temp.params.p = config->params.p;
+	temp.params.m = config->params.m;
+	temp.params.s = config->params.s;
+
+	/*
+	 * TODO:  There are a series of values that the algorithm neesd to search for
+	 * lc_s, k_s, n, n2, k and lc, but n, and n2 don't appear to be used right now,
+	 * so they are fixed.  If more resolutions are neeeded, consider searching n and n2,
+	 * but that would potentially take even longer for the algoritm to function.
+	 */
+	for (lc_s = 1; lc_s < 64; lc_s++) {
+		for (k_s = 0; k_s < 64; k_s++) {
+			for (k = k_range_start; k < k_range_end; k++) {
+				for (lc = 1; lc < 128; lc++) {
+					temp.params.n = n;
+					temp.params.k_s = k_s;
+					temp.params.lc_s = lc_s;
+					temp.params.n2 = n2;
+					temp.params.k = k;
+					temp.params.lc = lc;
+
+					/* Calculate the fractional part and check */
+					f_frac = calc_f_frac(&temp);
+
+					delta = abs(f_out - (temp.freq_int + f_frac));
+					if (delta < min_delta) {
+						min_delta = delta;
+						best_f_frac = f_frac;
+						best_k_s = k_s;
+						best_lc_s = lc_s;
+						best_k = k;
+						best_lc = lc;
+
+						/* Stop looking if we have an exact match */
+						if (!delta)
+						   goto done;
+					}
+				}
+			}
+
+		}
+	}
+done:
+
+	/* Note: N and N2 are currently fixed */
+	config->freq_frac = best_f_frac;
+	config->pixclk = config->freq_int + config->freq_frac;
+	config->params.n = n;
+	config->params.k_s = best_k_s;
+	config->params.lc_s = best_lc_s;
+	config->params.n2 = n2;
+	config->params.k = best_k;
+	config->params.lc = best_lc;
+
+#if 0
+printk(KERN_ERR "Fractional PLL result:\n");
+printk(KERN_ERR "  P: %d\n", config->params.p);
+printk(KERN_ERR "  M: %d\n", config->params.m);
+printk(KERN_ERR "  S: %d\n", config->params.s);
+
+printk(KERN_ERR "  N: %d\n", config->params.n);
+printk(KERN_ERR "  N2: %d\n", config->params.n2);
+printk(KERN_ERR "  K: %d\n", config->params.k);
+printk(KERN_ERR "  LC: %d\n", config->params.lc);
+printk(KERN_ERR "  K_s: %d\n", config->params.k_s);
+printk(KERN_ERR "  K_LC_S: %d\n", config->params.lc_s);
+printk(KERN_ERR "Total PLL Output Frequency: F_pll %d MHz\n", config->pixclk );
+printk(KERN_ERR "Deviation: %d Hz\n",  f_out - config->pixclk);
+#endif
+	return;
 }
 
 static int fsl_samsung_hdmi_phy_configure(struct fsl_samsung_hdmi_phy *phy,
@@ -500,67 +620,50 @@ static unsigned long phy_clk_recalc_rate(struct clk_hw *hw,
 	return phy->cur_cfg->pixclk;
 }
 
-/* Helper function to lookup the available fractional-divider rate */
-static const struct phy_config *fsl_samsung_hdmi_phy_lookup_rate(unsigned long rate)
+static void fsl_samsung_hdmi_calculate_phy(struct phy_config *cal_phy)
 {
-	int i;
-
-	/* Search the lookup table */
-	for (i = ARRAY_SIZE(phy_pll_cfg) - 1; i >= 0; i--)
-		if (phy_pll_cfg[i].pixclk <= rate)
-			break;
-
-	return &phy_pll_cfg[i];
-}
-
-static void fsl_samsung_hdmi_calculate_phy(struct phy_config *cal_phy, unsigned long rate,
-				    u8 p, u16 m, u8 s)
-{
-	cal_phy->pixclk = rate;
-	cal_phy->pll_div_regs[0] = FIELD_PREP(REG01_PMS_P_MASK, p);
-	cal_phy->pll_div_regs[1] = m;
-	cal_phy->pll_div_regs[2] = FIELD_PREP(REG03_PMS_S_MASK, s-1);
-	/* pll_div_regs 3-6 are fixed and pre-defined already */
-}
-
-static u32 fsl_samsung_hdmi_phy_get_closest_rate(unsigned long rate,
-						 u32 int_div_clk, u32 frac_div_clk)
-{
-	/* Calculate the absolute value of the differences and return whichever is closest */
-	if (abs((long)rate - (long)int_div_clk) < abs((long)(rate - (long)frac_div_clk)))
-		return int_div_clk;
-
-	return frac_div_clk;
+	cal_phy->pll_div_regs[0] = FIELD_PREP(REG01_PMS_P_MASK, cal_phy->params.p);
+	cal_phy->pll_div_regs[1] = cal_phy->params.m;
+	cal_phy->pll_div_regs[2] = FIELD_PREP(REG03_PMS_S_MASK, cal_phy->params.s-1);
+	cal_phy->pll_div_regs[2] |= (cal_phy->params.n2 << 3) | cal_phy->params.n;
+	cal_phy->pll_div_regs[3] = (cal_phy->freq_frac ? 0x80 : 0x00) | cal_phy->params.lc;
+	cal_phy->pll_div_regs[4] =(cal_phy->freq_frac < 0 ? 0x80 : 0x00) | cal_phy->params.k;
+	cal_phy->pll_div_regs[5] = 0x80 | cal_phy->params.lc_s;
+	cal_phy->pll_div_regs[6] =(cal_phy->freq_frac ? 0x40 : 0x00) | cal_phy->params.k_s;
 }
 
 static long phy_clk_round_rate(struct clk_hw *hw,
 			       unsigned long rate, unsigned long *parent_rate)
 {
-	const struct phy_config *fract_div_phy;
-	u32 int_div_clk;
-	u16 m;
-	u8 p, s;
+	 struct phy_config config;
+	 long int_div_clk;
 
 	/* If the clock is out of range return error instead of searching */
 	if (rate > 297000000 || rate < 22250000)
 		return -EINVAL;
 
-	/* If the exact match isn't found, calculate the integer divider */
-	int_div_clk = fsl_samsung_hdmi_phy_find_pms(rate, &p, &m, &s);
-
-	/* If the int_div_clk rate is an exact match, return that value */
+	int_div_clk = fsl_samsung_hdmi_phy_find_pms(rate, &config);
 	if (int_div_clk == rate)
 		return int_div_clk;
 
-	/* Search the fractional divider lookup table */
-	fract_div_phy = fsl_samsung_hdmi_phy_lookup_rate(rate);
+	/* Calculate the best fractional divider */
+	find_frac_params(&config, rate);
 
-	/* Determine the closest value to desired and return it */
-	if (fsl_samsung_hdmi_phy_get_closest_rate(rate, int_div_clk,
-						  fract_div_phy->pixclk) == fract_div_phy->pixclk)
-		return fract_div_phy->pixclk;
+printk(KERN_ERR "phy_clk_round_rate Fractional PLL result:\n");
+printk(KERN_ERR "  P: %d\n", config.params.p);
+printk(KERN_ERR "  M: %d\n", config.params.m);
+printk(KERN_ERR "  S: %d\n", config.params.s);
 
-	return int_div_clk;
+printk(KERN_ERR "  N: %d\n", config.params.n);
+printk(KERN_ERR "  N2: %d\n", config.params.n2);
+printk(KERN_ERR "  K: %d\n", config.params.k);
+printk(KERN_ERR "  LC: %d\n", config.params.lc);
+printk(KERN_ERR "  K_s: %d\n", config.params.k_s);
+printk(KERN_ERR "  K_LC_S: %d\n", config.params.lc_s);
+printk(KERN_ERR "Total PLL Output Frequency: F_pll %d MHz\n", config.pixclk );
+printk(KERN_ERR "Deviation: %ld Hz\n",  rate - config.pixclk);
+
+	return config.pixclk;
 }
 
 static int phy_use_fract_div(struct fsl_samsung_hdmi_phy *phy, const struct phy_config *fract_div_phy)
@@ -584,36 +687,22 @@ static int phy_clk_set_rate(struct clk_hw *hw,
 			    unsigned long rate, unsigned long parent_rate)
 {
 	struct fsl_samsung_hdmi_phy *phy = to_fsl_samsung_hdmi_phy(hw);
-	const struct phy_config *fract_div_phy;
 	u32 int_div_clk;
-	u16 m;
-	u8 p, s;
 
 	/*
 	 * If the rate from the integer divider is not exact, check the fractional divider,
 	 * and use it if that value is an exact match.
 	 */
-	int_div_clk = fsl_samsung_hdmi_phy_find_pms(rate, &p, &m, &s);
-	fsl_samsung_hdmi_calculate_phy(&calculated_phy_pll_cfg, int_div_clk, p, m, s);
+	int_div_clk = fsl_samsung_hdmi_phy_find_pms(rate, &calculated_phy_pll_cfg);
+	fsl_samsung_hdmi_calculate_phy(&calculated_phy_pll_cfg);
 	if (int_div_clk == rate)
 		return phy_use_integer_div(phy, &calculated_phy_pll_cfg);
 
-	/* Search the fractional divider lookup table */
-	fract_div_phy = fsl_samsung_hdmi_phy_lookup_rate(rate);
+	/* Calculate the best fractional divider */
+	find_frac_params(&calculated_phy_pll_cfg, rate);
+	fsl_samsung_hdmi_calculate_phy(&calculated_phy_pll_cfg);
 
-	/* If the rate is an exact match, use that value */
-	if (fract_div_phy->pixclk == rate)
-		return phy_use_fract_div(phy, fract_div_phy);
-
-	/*
-	 * Compare the difference between the integer clock and the fractional clock against
-	 * the desired clock and which whichever is closest.
-	 */
-	if (fsl_samsung_hdmi_phy_get_closest_rate(rate, int_div_clk,
-						  fract_div_phy->pixclk) == fract_div_phy->pixclk)
-		return phy_use_fract_div(phy, fract_div_phy);
-	else
-		return phy_use_integer_div(phy, &calculated_phy_pll_cfg);
+	return phy_use_fract_div(phy, &calculated_phy_pll_cfg);
 }
 
 static const struct clk_ops phy_clk_ops = {
