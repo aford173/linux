@@ -1656,7 +1656,8 @@ static int imx_gpcv2_probe(struct platform_device *pdev)
 		.max_register   = SZ_4K,
 	};
 	struct device *dev = &pdev->dev;
-	struct device_node *pgc_np;
+	struct device_node *pgc_np __free(device_node) =
+					  of_get_child_by_name(dev->of_node, "pgc");
 	struct regmap *regmap, *noc_regmap;
 	void __iomem *base;
 	int ret;
