@@ -123,6 +123,7 @@ static const char * const mtk_smi_common_clks[] = {"apb", "smi", "gals0", "gals1
 struct mtk_smi_common_plat {
 	enum mtk_smi_type	type;
 	bool			has_gals;
+	bool			skip_rpm;
 	u32			bus_sel; /* Balance some larbs to enter mmu0 or mmu1 */
 
 	const struct mtk_smi_reg_pair	*init;
@@ -627,6 +628,9 @@ static int mtk_smi_dts_clk_init(struct device *dev, struct mtk_smi *smi,
 {
 	int i, ret;
 
+	if (smi->plat->skip_rpm)
+		return 0;
+
 	for (i = 0; i < clk_nr_required; i++)
 		smi->clks[i].id = clks[i];
 	ret = devm_clk_bulk_get(dev, clk_nr_required, smi->clks);
@@ -873,7 +877,7 @@ static int mtk_smi_common_probe(struct platform_device *pdev)
 	common->dev = dev;
 	common->plat = of_device_get_match_data(dev);
 
-	if (common->plat->has_gals) {
+	if (!common->plat->skip_rpm && common->plat->has_gals) {
 		if (common->plat->type == MTK_SMI_GEN2)
 			clk_required = MTK_SMI_COM_GALS_REQ_CLK_NR;
 		else if (common->plat->type == MTK_SMI_GEN2_SUB_COMM)
@@ -904,13 +908,14 @@ static int mtk_smi_common_probe(struct platform_device *pdev)
 	}
 
 	/* link its smi-common if this is smi-sub-common */
-	if (common->plat->type == MTK_SMI_GEN2_SUB_COMM) {
+	if (common->plat->type == MTK_SMI_GEN2_SUB_COMM && !common->plat->skip_rpm) {
 		ret = mtk_smi_device_link_common(dev, &common->smi_common_dev);
 		if (ret < 0)
 			return ret;
 	}
 
-	pm_runtime_enable(dev);
+	if (!common->plat->skip_rpm)
+		pm_runtime_enable(dev);
 	platform_set_drvdata(pdev, common);
 	return 0;
 }
