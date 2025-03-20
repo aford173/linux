@@ -29,6 +29,7 @@ properties:
           - mediatek,mt8188-smi-larb
           - mediatek,mt8192-smi-larb
           - mediatek,mt8195-smi-larb
+          - mediatek,mt8196-smi-larb
 
       - description: for mt7623
         items:
@@ -66,7 +67,7 @@ properties:
   mediatek,larb-id:
     $ref: /schemas/types.yaml#/definitions/uint32
     minimum: 0
-    maximum: 31
+    maximum: 63
     description: the hardware id of this larb. It's only required when this
       hardware id is not consecutive from its M4U point of view.
 
@@ -121,6 +122,7 @@ allOf:
               - mediatek,mt8188-smi-larb
               - mediatek,mt8192-smi-larb
               - mediatek,mt8195-smi-larb
+              - mediatek,mt8196-smi-larb
 
     then:
       required:
