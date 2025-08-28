@@ -887,6 +887,32 @@ void mtk_mutex_unprepare(struct mtk_mutex *mutex)
 }
 EXPORT_SYMBOL_GPL(mtk_mutex_unprepare);
 
+static int mtk_mutex_get_output_comp_sof(enum mtk_ddp_comp_id id)
+{
+	switch (id) {
+	case DDP_COMPONENT_DSI0:
+		return MUTEX_SOF_DSI0;
+	case DDP_COMPONENT_DSI1:
+		return MUTEX_SOF_DSI1;
+	case DDP_COMPONENT_DSI2:
+		return MUTEX_SOF_DSI2;
+	case DDP_COMPONENT_DSI3:
+		return MUTEX_SOF_DSI3;
+	case DDP_COMPONENT_DPI0:
+		return MUTEX_SOF_DPI0;
+	case DDP_COMPONENT_DPI1:
+		return MUTEX_SOF_DPI1;
+	case DDP_COMPONENT_DP_INTF0:
+		return MUTEX_SOF_DP_INTF0;
+	case DDP_COMPONENT_DP_INTF1:
+		return MUTEX_SOF_DP_INTF1;
+	default:
+		break;
+	}
+
+	return -EINVAL;
+}
+
 void mtk_mutex_add_comp(struct mtk_mutex *mutex,
 			enum mtk_ddp_comp_id id)
 {
@@ -895,45 +921,27 @@ void mtk_mutex_add_comp(struct mtk_mutex *mutex,
 	unsigned int reg;
 	unsigned int sof_id, mod_id;
 	unsigned int offset;
+	int sof_id = mtk_mutex_get_output_comp_sof(id);
 
 	WARN_ON(&mtx->mutex[mutex->id] != mutex);
 
-	switch (id) {
-	case DDP_COMPONENT_DSI0:
-		sof_id = MUTEX_SOF_DSI0;
-		break;
-	case DDP_COMPONENT_DSI1:
-		sof_id = MUTEX_SOF_DSI0;
-		break;
-	case DDP_COMPONENT_DSI2:
-		sof_id = MUTEX_SOF_DSI2;
-		break;
-	case DDP_COMPONENT_DSI3:
-		sof_id = MUTEX_SOF_DSI3;
-		break;
-	case DDP_COMPONENT_DPI0:
-		sof_id = MUTEX_SOF_DPI0;
-		break;
-	case DDP_COMPONENT_DPI1:
-		sof_id = MUTEX_SOF_DPI1;
-		break;
-	case DDP_COMPONENT_DP_INTF0:
-		sof_id = MUTEX_SOF_DP_INTF0;
-		break;
-	case DDP_COMPONENT_DP_INTF1:
-		sof_id = MUTEX_SOF_DP_INTF1;
-		break;
-	default:
-		offset = DISP_REG_MUTEX_MOD(mtx, mtx->data->mutex_mod[id], mutex->id);
-		mod_id = mtx->data->mutex_mod[id] % 32;
-		reg = readl_relaxed(mtx->regs + offset);
-		reg |= BIT(mod_id);
-		writel_relaxed(reg, mtx->regs + offset);
+	if (sof_id < 0) {
+		if (mtx->data->mutex_mod[id] < 32) {
+			offset = DISP_REG_MUTEX_MOD(mtx->data->mutex_mod_reg,
+						    mutex->id);
+			reg = readl_relaxed(mtx->regs + offset);
+			reg |= 1 << mtx->data->mutex_mod[id];
+			writel_relaxed(reg, mtx->regs + offset);
+		} else {
+			offset = DISP_REG_MUTEX_MOD2(mutex->id);
+			reg = readl_relaxed(mtx->regs + offset);
+			reg |= 1 << (mtx->data->mutex_mod[id] - 32);
+			writel_relaxed(reg, mtx->regs + offset);
+		}
 		return;
 	}
 
-	writel_relaxed(mtx->data->mutex_sof[sof_id],
-		       mtx->regs +
+	writel_relaxed(mtx->data->mutex_sof[sof_id], mtx->regs +
 		       DISP_REG_MUTEX_SOF(mtx->data->mutex_sof_reg, mutex->id));
 }
 EXPORT_SYMBOL_GPL(mtk_mutex_add_comp);
@@ -946,31 +954,28 @@ void mtk_mutex_remove_comp(struct mtk_mutex *mutex,
 	unsigned int reg;
 	unsigned int mod_id;
 	unsigned int offset;
-
+	int sof_id = mtk_mutex_get_output_comp_sof(id);
 	WARN_ON(&mtx->mutex[mutex->id] != mutex);
 
-	switch (id) {
-	case DDP_COMPONENT_DSI0:
-	case DDP_COMPONENT_DSI1:
-	case DDP_COMPONENT_DSI2:
-	case DDP_COMPONENT_DSI3:
-	case DDP_COMPONENT_DPI0:
-	case DDP_COMPONENT_DPI1:
-	case DDP_COMPONENT_DP_INTF0:
-	case DDP_COMPONENT_DP_INTF1:
-		writel_relaxed(MUTEX_SOF_SINGLE_MODE,
-			       mtx->regs +
-			       DISP_REG_MUTEX_SOF(mtx->data->mutex_sof_reg,
-						  mutex->id));
-		break;
-	default:
-		offset = DISP_REG_MUTEX_MOD(mtx, mtx->data->mutex_mod[id], mutex->id);
-		mod_id = mtx->data->mutex_mod[id] % 32;
-		reg = readl_relaxed(mtx->regs + offset);
-		reg &= ~BIT(mod_id);
-		writel_relaxed(reg, mtx->regs + offset);
-		break;
+	if (sof_id < 0) {
+		if (mtx->data->mutex_mod[id] < 32) {
+			offset = DISP_REG_MUTEX_MOD(mtx->data->mutex_mod_reg,
+						    mutex->id);
+			reg = readl_relaxed(mtx->regs + offset);
+			reg &= ~(1 << mtx->data->mutex_mod[id]);
+			writel_relaxed(reg, mtx->regs + offset);
+		} else {
+			offset = DISP_REG_MUTEX_MOD2(mutex->id);
+			reg = readl_relaxed(mtx->regs + offset);
+			reg &= ~(1 << (mtx->data->mutex_mod[id] - 32));
+			writel_relaxed(reg, mtx->regs + offset);
+		}
+		return;
 	}
+
+	writel_relaxed(MUTEX_SOF_SINGLE_MODE,
+		       mtx->regs + DISP_REG_MUTEX_SOF(mtx->data->mutex_sof_reg,
+		       mutex->id));
 }
 EXPORT_SYMBOL_GPL(mtk_mutex_remove_comp);
 
