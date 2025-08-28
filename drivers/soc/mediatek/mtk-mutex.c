@@ -1099,18 +1099,11 @@ void mtk_mutex_add_comp(struct mtk_mutex *mutex,
 	WARN_ON(&mtx->mutex[mutex->id] != mutex);
 
 	if (!is_output_comp || mtx->data->need_sof_mod) {
-		if (mtx->data->mutex_mod[id] < 32) {
-			offset = DISP_REG_MUTEX_MOD(mtx->data->mutex_mod_reg,
-						    mutex->id);
-			reg = readl_relaxed(mtx->regs + offset);
-			reg |= 1 << mtx->data->mutex_mod[id];
-			writel_relaxed(reg, mtx->regs + offset);
-		} else {
-			offset = DISP_REG_MUTEX_MOD2(mutex->id);
-			reg = readl_relaxed(mtx->regs + offset);
-			reg |= 1 << (mtx->data->mutex_mod[id] - 32);
-			writel_relaxed(reg, mtx->regs + offset);
-		}
+		offset = DISP_REG_MUTEX_MOD(mtx, mtx->data->mutex_mod[id],
+					    mutex->id);
+		reg = readl_relaxed(mtx->regs + offset);
+		reg |= BIT(mtx->data->mutex_mod[id] % 32);
+		writel_relaxed(reg, mtx->regs + offset);
 	}
 
 	if (is_output_comp)
@@ -1124,25 +1117,17 @@ void mtk_mutex_remove_comp(struct mtk_mutex *mutex,
 	struct mtk_mutex_ctx *mtx = container_of(mutex, struct mtk_mutex_ctx,
 						 mutex[mutex->id]);
 	unsigned int reg;
-	unsigned int mod_id;
 	unsigned int offset;
 	bool is_output_comp = (mtk_mutex_get_output_comp_sof(id) > 0);
 
 	WARN_ON(&mtx->mutex[mutex->id] != mutex);
 
 	if (!is_output_comp || mtx->data->need_sof_mod) {
-		if (mtx->data->mutex_mod[id] < 32) {
-			offset = DISP_REG_MUTEX_MOD(mtx->data->mutex_mod_reg,
-						    mutex->id);
-			reg = readl_relaxed(mtx->regs + offset);
-			reg &= ~(1 << mtx->data->mutex_mod[id]);
-			writel_relaxed(reg, mtx->regs + offset);
-		} else {
-			offset = DISP_REG_MUTEX_MOD2(mutex->id);
-			reg = readl_relaxed(mtx->regs + offset);
-			reg &= ~(1 << (mtx->data->mutex_mod[id] - 32));
-			writel_relaxed(reg, mtx->regs + offset);
-		}
+		offset = DISP_REG_MUTEX_MOD(mtx, mtx->data->mutex_mod[id],
+					    mutex->id);
+		reg = readl_relaxed(mtx->regs + offset);
+		reg &= ~BIT(mtx->data->mutex_mod[id] % 32);
+		writel_relaxed(reg, mtx->regs + offset);
 	}
 
 	if (is_output_comp)
