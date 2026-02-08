@@ -731,6 +731,11 @@ struct arm_smmu_impl_ops {
 	size_t (*get_viommu_size)(enum iommu_viommu_type viommu_type);
 	int (*vsmmu_init)(struct arm_vsmmu *vsmmu,
 			  const struct iommu_user_data *user_data);
+	int (*combined_irq_handle)(int irq, struct arm_smmu_device *smmu);
+	int (*smmu_evt_handler)(int irq, struct arm_smmu_device *smmu,
+				u64 *evt, struct ratelimit_state *rs);
+	int (*smmu_power_get)(struct arm_smmu_device *smmu);
+	int (*smmu_power_put)(struct arm_smmu_device *smmu);
 };
 
 /* An SMMUv3 instance */
