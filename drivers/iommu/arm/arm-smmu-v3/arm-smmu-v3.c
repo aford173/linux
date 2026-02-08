@@ -4865,6 +4865,10 @@ static struct arm_smmu_device *arm_smmu_impl_probe(struct arm_smmu_device *smmu)
 	if (smmu->impl_dev && (smmu->options & ARM_SMMU_OPT_TEGRA241_CMDQV))
 		new_smmu = tegra241_cmdqv_probe(smmu);
 
+	if (IS_ENABLED(CONFIG_ARM_SMMU_V3_MEDIATEK) &&
+	    new_smmu == ERR_PTR(-ENODEV))
+		new_smmu = arm_smmu_v3_impl_mtk_init(smmu);
+
 	if (new_smmu == ERR_PTR(-ENODEV))
 		return smmu;
 	if (IS_ERR(new_smmu))
