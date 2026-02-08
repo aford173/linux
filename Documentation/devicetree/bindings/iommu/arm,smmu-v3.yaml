@@ -24,6 +24,8 @@ properties:
       - const: arm,smmu-v3
       - items:
           - enum:
+              - mediatek,mt8196-apu-smmu
+              - mediatek,mt8196-mm-smmu
               - nvidia,tegra264-smmu
           - const: arm,smmu-v3
 
@@ -83,6 +85,9 @@ properties:
       register access with page 0 offsets. Set for Cavium ThunderX2 silicon that
       doesn't support SMMU page1 register space.
 
+  power-domains:
+    maxItems: 1
+
 allOf:
   - if:
       not:
@@ -93,6 +98,15 @@ allOf:
     then:
       properties:
         nvidia,cmdqv: false
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - mediatek,mt8196-apu-smmu
+    then:
+      required:
+        - power-domains
 
 required:
   - compatible
